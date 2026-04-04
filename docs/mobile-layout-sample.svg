@@ -1,0 +1,129 @@
+<svg width="360" height="1720" viewBox="0 0 360 1720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="360" height="1720" fill="#F5EFE4"/>
+  <rect x="8" y="18" width="344" height="162" rx="24" fill="#FFF8EE" stroke="#F0E4D3"/>
+  <text x="28" y="48" fill="#0F766E" font-family="Arial, PingFang SC, sans-serif" font-size="14" font-weight="700">NAS NETWORK MONITOR</text>
+  <text x="28" y="78" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="24" font-weight="700">NAS 外网监测面板</text>
+  <text x="28" y="106" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="14">展示外网连通性、链路延迟分布与正式测速历史，</text>
+  <text x="28" y="126" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="14">底部提供目标、事件和明细数据表。</text>
+  <rect x="28" y="138" width="82" height="34" rx="17" fill="#1F1C18"/>
+  <text x="49" y="160" fill="white" font-family="Arial, PingFang SC, sans-serif" font-size="13" font-weight="700">立即测速</text>
+  <rect x="118" y="138" width="98" height="34" rx="17" fill="#FFFDFC" stroke="#E5D8C5"/>
+  <text x="139" y="160" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="13">清理旧样本</text>
+  <rect x="224" y="138" width="84" height="34" rx="17" fill="#FFFDFC" stroke="#E5D8C5"/>
+  <text x="247" y="160" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="13">导出 CSV</text>
+
+  <rect x="8" y="188" width="344" height="184" rx="24" fill="#FFF8EE" stroke="#F0E4D3"/>
+  <text x="28" y="222" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="14">心跳目标</text>
+  <rect x="88" y="205" width="108" height="34" rx="17" fill="#FFFDFC" stroke="#E5D8C5"/>
+  <text x="106" y="227" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="13">223.5.5.5</text>
+  <text x="174" y="227" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="10">▼</text>
+  <rect x="28" y="260" width="64" height="34" rx="17" fill="#FFFDFC" stroke="#E5D8C5"/>
+  <rect x="100" y="260" width="72" height="34" rx="17" fill="#DDEEE7" stroke="#B9D9CC"/>
+  <rect x="180" y="260" width="58" height="34" rx="17" fill="#FFFDFC" stroke="#E5D8C5"/>
+  <text x="48" y="282" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="13">6 小时</text>
+  <text x="118" y="282" fill="#0F766E" font-family="Arial, PingFang SC, sans-serif" font-size="13" font-weight="700">24 小时</text>
+  <text x="199" y="282" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="13">7 天</text>
+  <rect x="28" y="304" width="56" height="34" rx="17" fill="#FFFDFC" stroke="#E5D8C5"/>
+  <rect x="92" y="304" width="68" height="34" rx="17" fill="#DDEEE7" stroke="#B9D9CC"/>
+  <rect x="168" y="304" width="56" height="34" rx="17" fill="#FFFDFC" stroke="#E5D8C5"/>
+  <text x="47" y="326" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="13">分钟</text>
+  <text x="111" y="326" fill="#0F766E" font-family="Arial, PingFang SC, sans-serif" font-size="13" font-weight="700">5 分钟</text>
+  <text x="185" y="326" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="13">小时</text>
+  <rect x="28" y="348" width="78" height="34" rx="17" fill="#FFFDFC" stroke="#E5D8C5"/>
+  <rect x="114" y="348" width="78" height="34" rx="17" fill="#DDEEE7" stroke="#B9D9CC"/>
+  <rect x="200" y="348" width="78" height="34" rx="17" fill="#FFFDFC" stroke="#E5D8C5"/>
+  <text x="46" y="370" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="13">测速 24h</text>
+  <text x="132" y="370" fill="#0F766E" font-family="Arial, PingFang SC, sans-serif" font-size="13" font-weight="700">测速 7d</text>
+  <text x="218" y="370" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="13">测速 30d</text>
+
+  <text x="12" y="406" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">心跳 223.5.5.5 · 5m · 最近 24 小时；测速展示 最近 168 小时</text>
+
+  <rect x="8" y="424" width="344" height="206" rx="24" fill="#FFF8EE" stroke="#F0E4D3"/>
+  <text x="22" y="458" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="18" font-weight="700">连通性晶格</text>
+  <text x="22" y="482" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">按时间展示在线率与延迟状态，便于快速识别中断和抖动时段。</text>
+  <text x="22" y="514" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="12" font-weight="700">2026-04-03</text>
+  <text x="140" y="514" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="12" font-weight="700">2026-04-04</text>
+  <g transform="translate(22 526)">
+    <g fill="#39B86A">
+      <circle cx="4" cy="4" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="20" cy="4" r="2"/><circle cx="28" cy="4" r="2"/><circle cx="36" cy="4" r="2"/><circle cx="44" cy="4" r="2"/><circle cx="52" cy="4" r="2"/><circle cx="60" cy="4" r="2"/><circle cx="68" cy="4" r="2"/><circle cx="76" cy="4" r="2"/><circle cx="84" cy="4" r="2"/><circle cx="92" cy="4" r="2"/>
+      <circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="12" r="2"/><circle cx="28" cy="12" r="2"/><circle cx="36" cy="12" r="2"/><circle cx="44" cy="12" r="2"/><circle cx="52" cy="12" r="2"/><circle cx="60" cy="12" r="2"/><circle cx="68" cy="12" r="2"/><circle cx="76" cy="12" r="2"/><circle cx="84" cy="12" r="2"/><circle cx="92" cy="12" r="2"/>
+      <circle cx="4" cy="20" r="2"/><circle cx="12" cy="20" r="2"/><circle cx="20" cy="20" r="2"/><circle cx="28" cy="20" r="2"/><circle cx="36" cy="20" r="2"/><circle cx="44" cy="20" r="2"/><circle cx="52" cy="20" r="2"/><circle cx="60" cy="20" r="2"/><circle cx="68" cy="20" r="2"/><circle cx="76" cy="20" r="2"/><circle cx="84" cy="20" r="2"/><circle cx="92" cy="20" r="2"/>
+      <circle cx="4" cy="28" r="2"/><circle cx="12" cy="28" r="2"/><circle cx="20" cy="28" r="2"/><circle cx="28" cy="28" r="2"/><circle cx="36" cy="28" r="2"/><circle cx="44" cy="28" r="2"/><circle cx="52" cy="28" r="2"/><circle cx="60" cy="28" r="2"/><circle cx="68" cy="28" r="2"/><circle cx="76" cy="28" r="2"/><circle cx="84" cy="28" r="2"/><circle cx="92" cy="28" r="2"/>
+    </g>
+    <g transform="translate(112 0)" fill="#39B86A">
+      <circle cx="4" cy="4" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="20" cy="4" r="2"/><circle cx="28" cy="4" r="2"/><circle cx="36" cy="4" r="2"/><circle cx="44" cy="4" r="2"/><circle cx="52" cy="4" r="2"/><circle cx="60" cy="4" r="2"/><circle cx="68" cy="4" r="2"/><circle cx="76" cy="4" r="2"/><circle cx="84" cy="4" r="2"/><circle cx="92" cy="4" r="2"/>
+      <circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="12" r="2"/><circle cx="28" cy="12" r="2"/><circle cx="36" cy="12" r="2"/><circle cx="44" cy="12" r="2"/><circle cx="52" cy="12" r="2"/><circle cx="60" cy="12" r="2"/><circle cx="68" cy="12" r="2"/><circle cx="76" cy="12" r="2"/><circle cx="84" cy="12" r="2"/><circle cx="92" cy="12" r="2"/>
+      <circle cx="4" cy="20" r="2"/><circle cx="12" cy="20" r="2"/><circle cx="20" cy="20" r="2"/><circle cx="28" cy="20" r="2"/><circle cx="36" cy="20" r="2"/><circle cx="44" cy="20" r="2"/><circle cx="52" cy="20" r="2"/><circle cx="60" cy="20" r="2"/><circle cx="68" cy="20" r="2"/><circle cx="76" cy="20" r="2"/><circle cx="84" cy="20" r="2"/><circle cx="92" cy="20" r="2"/>
+      <circle cx="4" cy="28" r="2"/><circle cx="12" cy="28" r="2"/><circle cx="20" cy="28" r="2"/><circle cx="28" cy="28" r="2"/><circle cx="36" cy="28" r="2"/><circle cx="44" cy="28" r="2"/><circle cx="52" cy="28" r="2"/><circle cx="60" cy="28" r="2"/><circle cx="68" cy="28" r="2"/><circle cx="76" cy="28" r="2"/><circle cx="84" cy="28" r="2"/><circle cx="92" cy="28" r="2"/>
+    </g>
+  </g>
+  <circle cx="30" cy="598" r="6" fill="#39B86A"/><text x="44" y="603" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">正常</text>
+  <circle cx="95" cy="598" r="6" fill="#D8922B"/><text x="109" y="603" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">高延迟</text>
+  <circle cx="172" cy="598" r="6" fill="#D94B57"/><text x="186" y="603" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">失败</text>
+
+  <rect x="8" y="646" width="344" height="262" rx="24" fill="#FFF8EE" stroke="#F0E4D3"/>
+  <text x="22" y="680" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="18" font-weight="700">链路诊断矩阵</text>
+  <text x="22" y="704" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">对比各目标的延迟分位、成功率和基线偏移，用于定位异常链路范围。</text>
+  <rect x="24" y="734" width="312" height="146" rx="18" fill="#FFFDFC" stroke="#EFE4D4"/>
+  <line x1="164" y1="744" x2="164" y2="868" stroke="#E8DDD0"/>
+  <line x1="210" y1="744" x2="210" y2="868" stroke="#E8DDD0"/>
+  <line x1="256" y1="744" x2="256" y2="868" stroke="#E8DDD0"/>
+  <line x1="302" y1="744" x2="302" y2="868" stroke="#E8DDD0"/>
+  <text x="34" y="766" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="12" font-weight="700">223.5.5.5</text>
+  <text x="34" y="792" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="12" font-weight="700">119.29.29.29</text>
+  <text x="34" y="818" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="12" font-weight="700">180.76.76.76</text>
+  <text x="34" y="844" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="12" font-weight="700">1.1.1.1</text>
+  <text x="34" y="870" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="12" font-weight="700">8.8.8.8</text>
+  <circle cx="178" cy="762" r="4" fill="#2563EB" stroke="#FFF" stroke-width="1.5"/>
+  <circle cx="178" cy="788" r="4" fill="#2563EB" stroke="#FFF" stroke-width="1.5"/>
+  <circle cx="184" cy="814" r="4" fill="#2563EB" stroke="#FFF" stroke-width="1.5"/>
+  <circle cx="238" cy="840" r="5" fill="#2563EB" stroke="#FFF" stroke-width="1.5"/>
+  <circle cx="296" cy="866" r="5" fill="#B91C1C" stroke="#FFF" stroke-width="1.5"/>
+
+  <rect x="8" y="924" width="344" height="286" rx="24" fill="#FFF8EE" stroke="#F0E4D3"/>
+  <text x="22" y="958" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="18" font-weight="700">心跳延迟趋势</text>
+  <text x="22" y="982" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">展示平均延迟、p95、p99 与异常事件，观察短时波动与尾部风险。</text>
+  <rect x="24" y="1006" width="312" height="152" rx="16" fill="#FFFDFC" stroke="#EFE4D4"/>
+  <line x1="32" y1="1042" x2="328" y2="1042" stroke="#E8DDD0"/>
+  <line x1="32" y1="1082" x2="328" y2="1082" stroke="#E8DDD0"/>
+  <line x1="32" y1="1122" x2="328" y2="1122" stroke="#E8DDD0"/>
+  <polyline points="34,1110 48,1103 62,1114 76,1098 90,1108 104,1086 118,1105 132,1096 146,1088 160,1062 174,1098 188,1072 202,1038 216,1096 230,1056 244,1088 258,1102 272,1094 286,1078 300,1100 314,1086" fill="none" stroke="#2563EB" stroke-width="2"/>
+  <polyline points="34,1098 48,1091 62,1100 76,1088 90,1094 104,1078 118,1096 132,1086 146,1080 160,1046 174,1080 188,1060 202,1024 216,1078 230,1040 244,1072 258,1082 272,1074 286,1062 300,1088 314,1070" fill="none" stroke="#0891B2" stroke-width="2" stroke-dasharray="4 3"/>
+  <polyline points="34,1088 48,1084 62,1092 76,1080 90,1086 104,1068 118,1086 132,1076 146,1070 160,1028 174,1068 188,1048 202,1014 216,1064 230,1030 244,1060 258,1070 272,1062 286,1052 300,1078 314,1060" fill="none" stroke="#7C3AED" stroke-width="2" stroke-dasharray="4 3"/>
+  <line x1="160" y1="1016" x2="160" y2="1146" stroke="#D8922B" stroke-dasharray="4 4"/>
+  <line x1="252" y1="1016" x2="252" y2="1146" stroke="#D8922B" stroke-dasharray="4 4"/>
+  <circle cx="28" cy="1182" r="6" fill="#2563EB"/><text x="42" y="1187" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">平均延迟</text>
+  <circle cx="108" cy="1182" r="6" fill="#0891B2"/><text x="122" y="1187" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">p95</text>
+  <circle cx="160" cy="1182" r="6" fill="#7C3AED"/><text x="174" y="1187" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">p99</text>
+  <circle cx="220" cy="1182" r="6" fill="#D94B57"/><text x="234" y="1187" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">事件线</text>
+
+  <rect x="8" y="1226" width="344" height="334" rx="24" fill="#FFF8EE" stroke="#F0E4D3"/>
+  <text x="22" y="1260" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="18" font-weight="700">正式测速趋势</text>
+  <text x="22" y="1284" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">按时间查看下载、上传和延迟变化，辅助判断带宽波动与测速异常。</text>
+  <rect x="24" y="1298" width="212" height="28" rx="14" fill="#F3EEE2"/>
+  <text x="40" y="1316" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="12">China Telecom / China Telecom / 114.86.84.204</text>
+  <rect x="24" y="1342" width="312" height="176" rx="16" fill="#FFFDFC" stroke="#EFE4D4"/>
+  <line x1="32" y1="1380" x2="328" y2="1380" stroke="#E8DDD0"/>
+  <line x1="32" y1="1430" x2="328" y2="1430" stroke="#E8DDD0"/>
+  <line x1="32" y1="1476" x2="328" y2="1476" stroke="#E8DDD0"/>
+  <polyline points="34,1388 48,1386 62,1388 76,1384 90,1382 104,1410 118,1386 132,1388 146,1384 160,1386 174,1384 188,1460 202,1388 216,1386 230,1388 244,1384 258,1386 272,1384 286,1382 300,1412 314,1386" fill="none" stroke="#0F766E" stroke-width="2"/>
+  <polyline points="34,1444 48,1446 62,1442 76,1444 90,1450 104,1446 118,1454 132,1450 146,1452 160,1450 174,1452 188,1450 202,1456 216,1452 230,1450 244,1448 258,1454 272,1452 286,1446 300,1448 314,1450" fill="none" stroke="#DC6B2F" stroke-width="2"/>
+  <polyline points="34,1498 48,1496 62,1494 76,1498 90,1496 104,1494 118,1496 132,1494 146,1492 160,1496 174,1498 188,1496 202,1494 216,1492 230,1494 244,1498 258,1492 272,1494 286,1498 300,1492 314,1494" fill="none" stroke="#2563EB" stroke-width="2"/>
+  <circle cx="28" cy="1532" r="6" fill="#0F766E"/><text x="42" y="1537" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">下载</text>
+  <circle cx="84" cy="1532" r="6" fill="#DC6B2F"/><text x="98" y="1537" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">上传</text>
+  <circle cx="140" cy="1532" r="6" fill="#2563EB"/><text x="154" y="1537" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="13">延迟</text>
+
+  <rect x="8" y="1576" width="344" height="118" rx="24" fill="#FFF8EE" stroke="#F0E4D3"/>
+  <text x="22" y="1610" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="16" font-weight="700">心跳目标明细</text>
+  <line x1="22" y1="1634" x2="330" y2="1634" stroke="#E8DDD0"/>
+  <text x="22" y="1658" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="12" font-weight="700">目标</text>
+  <text x="120" y="1658" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="12" font-weight="700">样本</text>
+  <text x="164" y="1658" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="12" font-weight="700">成功率</text>
+  <text x="224" y="1658" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="12" font-weight="700">平均延迟</text>
+  <text x="292" y="1658" fill="#675D53" font-family="Arial, PingFang SC, sans-serif" font-size="12" font-weight="700">最新</text>
+  <text x="22" y="1684" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="12">119.29.29.29</text>
+  <text x="122" y="1684" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="12">57</text>
+  <text x="164" y="1684" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="12">100.00%</text>
+  <text x="228" y="1684" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="12">8.56 ms</text>
+  <text x="292" y="1684" fill="#1F1C18" font-family="Arial, PingFang SC, sans-serif" font-size="12">19:03</text>
+</svg>

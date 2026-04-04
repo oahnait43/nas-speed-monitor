@@ -1,38 +1,68 @@
 # NAS Speed Monitor
 
-面向 NAS 的网络监控面板，重点做两类观测：
+面向 NAS 的外网监测面板，提供两类长期观测：
 
-- 轻量外网连通性探测：多目标 `ping`，分钟级采样，支持 `1m / 5m / 1h` 聚合
-- 正式外网测速：Ookla 官方 `speedtest` CLI，持久化历史结果并展示趋势
+- 分钟级心跳探测：多目标 `ping`，用于监控外网连通性、延迟抖动和异常时段
+- 周期性正式测速：基于 Ookla 官方 `speedtest` CLI，记录下载、上传、延迟和测速节点历史
 
-项目适合群晖、威联通和其他可运行 Docker 的 NAS。默认数据使用 SQLite 持久化，页面内置历史曲线、异常标记、p95/p99 视图和事件标注。
+项目已经按当前极空间 NAS 的实际部署方式和移动端使用习惯做过优化，适合作为常驻 Docker 服务运行。
 
-当前这版已经按极空间 NAS 的实际部署路径做过一轮优化，尤其是：
+## 当前版本
 
-- Docker 单容器部署流程更直接
-- 数据目录和端口映射更适合 NAS 图形界面配置
-- 默认节点池更偏向国内，极空间上开箱即用更顺畅
-- 运行时不依赖构建代理，适合在 NAS 上长期常驻
+- 单容器部署，SQLite 持久化历史数据
+- 支持 `1m / 5m / 1h` 三档心跳聚合
+- 默认 5 条心跳链路：
+  - `223.5.5.5` `AliDNS`，国内主基线
+  - `119.29.29.29` `DNSPod`，国内副基线
+  - `180.76.76.76` `Baidu DNS`，国内次级对照
+  - `1.1.1.1` `Cloudflare`，国际近点
+  - `8.8.8.8` `Google Public DNS`，国际高延迟对照
+- 默认 Speedtest 优选节点池：
+  - `3633` `China Telecom / Shanghai`
+  - `5396` `China Telecom JiangSu 5G / Suzhou`
+  - `30852` `Duke Kunshan University / Kunshan`
+  - `59386` `浙江电信 / HangZhou`
+- 链路诊断矩阵可区分单点异常、国内链路异常和国际链路异常
+- 移动端已做专门适配：
+  - 图表单列纵向排列
+  - 手机屏幕下缩减留白、放大线条和文字
+  - 心跳图和测速图使用独立移动端比例
+
+## 界面示例
+
+当前移动端界面样例：
+
+![移动端界面样例](docs/mobile-layout-sample.svg)
+
+主要模块：
+
+- `连通性晶格`
+  - 按时间展示在线率和高延迟状态
+  - 适合快速识别断流和波动时段
+- `链路诊断矩阵`
+  - 对比各目标的平均延迟、`p95`、`p99`、成功率和相对基线偏移
+  - 适合判断异常范围是在国内链路、国际链路还是单点目标
+- `心跳延迟趋势`
+  - 展示平均延迟、`p95`、`p99` 和异常事件
+  - 用于观察短时毛刺和尾部风险
+- `正式测速趋势`
+  - 展示下载、上传和延迟的长期变化
+  - 结合测速节点和失败标线判断外网质量
+- `底部数据表`
+  - 提供心跳目标明细、事件记录和测速历史明细
 
 ## 特性
 
-- 多目标心跳探测：默认监控 `223.5.5.5`、`114.114.114.114`、`1.1.1.1`
-- 分钟级连通性晶格：适合快速判断外网是否稳定
-- 聚合视图：支持分钟、5 分钟、小时三级粒度
-- 异常事件：自动识别断流和延迟毛刺
-- p95 / p99 延迟视图：比均值更容易看出抖动
-- 正式 Speedtest：使用 Ookla 官方 CLI，而不是 Python 第三方实现
-- 上海电信优选节点池：默认 `3633,5396,30852,59386`
-- 历史持久化：SQLite 存储，容器重建后数据仍保留
-- 手动测速、CSV 导出、旧样本清理
+- 多目标心跳探测，默认采样间隔 `60s`
+- 心跳聚合支持 `1m / 5m / 1h`
+- 自动识别断流和延迟毛刺事件
+- 心跳图展示 `p95 / p99`
+- 正式测速使用 Ookla 官方 CLI
+- 历史数据持久化到 SQLite
+- 支持导出 CSV
+- 支持手动触发测速
+- 支持清理旧版低质量样本
 - 可选内网 `iperf3` 测速
-
-## 界面概览
-
-- 顶部：多目标心跳监控、时间范围切换、聚合粒度切换
-- 中部：Speedtest 趋势图，带采样点、毛刺、阈值线和关键标签
-- 侧栏：当前结论、最近变化、关键注释
-- 下部：辅助画像、异常时段、失败记录、历史明细
 
 ## 目录结构
 
@@ -43,6 +73,8 @@
 ├── docker-compose.yml
 ├── requirements.txt
 ├── .env.example
+├── docs/
+│   └── mobile-layout-sample.svg
 ├── templates/
 │   └── index.html
 └── static/
@@ -52,7 +84,7 @@
 
 ## 快速开始
 
-### 1. 直接使用 Docker Compose
+### Docker Compose
 
 ```bash
 docker compose up -d --build
@@ -64,16 +96,20 @@ docker compose up -d --build
 http://你的NAS地址:8080
 ```
 
-### 2. 推荐先修改的配置
+### 推荐优先调整的配置
 
-最重要的几个环境变量：
-
-- `INTERNET_SERVER_POOL`：固定优选测速节点池
-- `HEARTBEAT_TARGETS`：多目标心跳探测地址
-- `SCHEDULE_MINUTES`：正式测速周期
-- `HEARTBEAT_INTERVAL_SECONDS`：心跳采样间隔
-- `RETENTION_DAYS`：数据保留天数
-- `LAN_IPERF_HOST`：如果启用内网测速，需要填写 `iperf3` 服务端 IP
+- `INTERNET_SERVER_POOL`
+  - 正式测速优选节点池
+- `HEARTBEAT_TARGETS`
+  - 心跳探测目标列表
+- `SCHEDULE_MINUTES`
+  - 正式测速周期
+- `HEARTBEAT_INTERVAL_SECONDS`
+  - 心跳采样周期
+- `RETENTION_DAYS`
+  - 自动清理历史数据的保留天数
+- `LAN_IPERF_HOST`
+  - 启用内网测速时填写 `iperf3` 服务端地址
 
 ## 配置说明
 
@@ -84,13 +120,13 @@ http://你的NAS地址:8080
 | `RUN_ON_START` | `true` | 容器启动后是否立即跑一次正式测速 |
 | `ENABLE_INTERNET_TEST` | `true` | 是否启用外网 Speedtest |
 | `ENABLE_LAN_TEST` | `true` | 是否启用内网 `iperf3` |
-| `ENABLE_HEARTBEAT_TEST` | `true` | 是否启用轻量心跳探测 |
+| `ENABLE_HEARTBEAT_TEST` | `true` | 是否启用心跳探测 |
 | `HEARTBEAT_INTERVAL_SECONDS` | `60` | 心跳采样间隔，单位秒 |
 | `HEARTBEAT_TARGET` | `223.5.5.5` | 主心跳目标 |
-| `HEARTBEAT_TARGETS` | `223.5.5.5,114.114.114.114,1.1.1.1` | 多目标心跳地址列表 |
+| `HEARTBEAT_TARGETS` | `223.5.5.5,119.29.29.29,180.76.76.76,1.1.1.1,8.8.8.8` | 心跳目标列表 |
 | `HEARTBEAT_TIMEOUT_SECONDS` | `2` | 单次 `ping` 超时秒数 |
 | `INTERNET_SPEEDTEST_SERVER_ID` | 空 | 指定单一测速节点 |
-| `INTERNET_SERVER_POOL` | `3633,5396,30852,59386` | 固定测速节点池，失败时会自动回退到自动选点 |
+| `INTERNET_SERVER_POOL` | `3633,5396,30852,59386` | 固定测速节点池，失败时自动回退到自动选点 |
 | `INTERNET_RETRIES` | `2` | 单次 Speedtest 最多重试次数 |
 | `INTERNET_RETRY_DELAY_SECONDS` | `5` | Speedtest 重试间隔 |
 | `DOWNLOAD_ALERT_MBPS` | `5` | 下载低于此值标为异常 |
@@ -103,23 +139,9 @@ http://你的NAS地址:8080
 | `RETENTION_DAYS` | `0` | 数据保留天数，`0` 表示不自动清理 |
 | `DATA_DIR` | `/data` | SQLite 数据目录 |
 
-## 内网测速
-
-如果你需要内网吞吐测试，先在局域网内另一台设备上启动：
-
-```bash
-iperf3 -s
-```
-
-然后把 `LAN_IPERF_HOST` 改成这台设备的局域网 IP，并确保：
-
-- 设备长期在线
-- 尽量是有线连接
-- NAS 到这台设备网络路径稳定
-
 ## 数据存储
 
-默认 SQLite 文件位于：
+默认 SQLite 文件位置：
 
 ```text
 /data/speed_history.db
@@ -134,58 +156,78 @@ volumes:
 
 所以容器升级或重建后，历史数据会保留。
 
-## 已实现的接口
+## 已实现接口
 
-- `GET /`：Web 看板
-- `GET /health`：健康检查
-- `GET /api/history`：历史记录
-- `GET /api/internet/summary`：外网测速汇总
-- `GET /api/heartbeat/summary`：主目标心跳汇总
-- `GET /api/heartbeat/targets`：心跳目标列表
-- `GET /api/heartbeat/dashboard`：聚合后的心跳视图
-- `POST /api/run`：手动触发正式测速
-- `POST /api/admin/cleanup-legacy`：清理旧版低质量样本
-- `GET /api/export.csv`：导出 CSV
+- `GET /`
+  - Web 看板
+- `GET /health`
+  - 健康检查
+- `GET /api/history`
+  - 历史记录
+- `GET /api/internet/summary`
+  - 外网测速汇总
+- `GET /api/heartbeat/summary`
+  - 主目标心跳汇总
+- `GET /api/heartbeat/targets`
+  - 各心跳目标汇总
+- `GET /api/heartbeat/dashboard`
+  - 聚合心跳视图
+- `POST /api/run`
+  - 手动触发正式测速
+- `POST /api/admin/cleanup-legacy`
+  - 清理旧版低质量样本
+- `GET /api/export.csv`
+  - 导出 CSV
 
-## 部署建议
+## NAS 部署建议
+
+### 极空间
+
+这一版优先针对极空间做了优化：
+
+- Docker 单容器部署流程更顺畅
+- 数据目录和端口映射更适合 NAS 图形界面配置
+- 默认目标池和测速节点池可以直接用于外网质量监控
+- 运行时不依赖构建代理，适合长期常驻
+
+推荐：
+
+- 端口映射 `8080:8080`
+- 数据目录映射到 NAS 本地持久化路径
+- 如果只关注外网稳定性，先关闭 `ENABLE_LAN_TEST`
 
 ### 群晖 / 威联通
 
 - 映射端口 `8080`
 - 映射数据卷到 `/data`
-- 用环境变量控制测速行为
-- 如果 NAS 走代理构建镜像，运行容器时不建议再继承代理变量
+- 使用环境变量控制测速行为
+- 如果 NAS 构建镜像依赖代理，运行容器时不建议继承代理变量
 
-### 极空间
+## 内网测速
 
-这一版对极空间部署更友好，建议优先用“创建项目”或“导入 Compose”方式部署：
+如果需要内网吞吐测试，先在局域网内另一台设备上启动：
 
-- 端口直接映射 `8080:8080`
-- 数据目录映射到 NAS 本地持久化目录
-- 如只关注外网稳定性，可先关闭 `ENABLE_LAN_TEST`
-- 默认心跳和 Speedtest 配置已经能直接用于极空间的日常外网监控
+```bash
+iperf3 -s
+```
 
-### 上海电信场景
+然后把 `LAN_IPERF_HOST` 改成它的局域网 IP，并尽量满足：
 
-当前默认优选节点池偏向上海电信和周边：
-
-- `3633` `China Telecom / Shanghai`
-- `5396` `China Telecom JiangSu 5G / Suzhou`
-- `30852` `Duke Kunshan University / Kunshan`
-- `59386` `浙江电信 / HangZhou`
-
-如需更换节点，可直接修改 `INTERNET_SERVER_POOL`。
+- 设备长期在线
+- 优先有线连接
+- NAS 到该设备的网络路径稳定
 
 ## 已知限制
 
-- `114.114.114.114` 在部分网络环境下可能会被限制 ICMP 或出现偶发失败
-- Speedtest 结果会受运营商策略、节点负载、出口路由影响
-- 当前 Web 图表是前端 SVG 绘制，适合监控和分析，不是报表系统
+- Speedtest 结果会受运营商策略、节点负载和出口路由影响
+- `8.8.8.8`、`9.9.9.9`、`208.67.222.222` 这类国际目标在部分网络环境下可能出现高延迟或丢包
+- `114.114.114.114` 在部分网络环境下会长期限制 ICMP，默认已不再作为首选样本
+- 当前前端图表基于 SVG 绘制，更适合监控和排障，不是报表系统
 
-## 后续可以继续做的方向
+## 后续方向
 
-- 多目标同图对比
-- 告警推送到 Telegram / 企业微信 / 邮件
-- 日报导出
+- 异常告警推送到 Telegram / 企业微信 / 邮件
+- 日报和周报导出
 - 更细的事件分类
-- 独立的公网 IP 变更追踪
+- 公网 IP 变更追踪
+- 心跳目标自定义分组

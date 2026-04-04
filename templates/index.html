@@ -10,11 +10,9 @@
     <div class="page-shell">
       <header class="hero hero-compact">
         <div>
-          <p class="eyebrow">NAS Internet Board</p>
-          <h1>外网状态先看晶格，再看质量曲线</h1>
-          <p class="hero-copy">
-            顶部每分钟探测外网连通性，下面保留正式 Speedtest 趋势和异常分析。
-          </p>
+          <p class="eyebrow">NAS Network Monitor</p>
+          <h1>NAS 外网监测面板</h1>
+          <p class="hero-copy">展示外网连通性、链路延迟分布与正式测速历史，底部提供目标、事件和明细数据表。</p>
         </div>
         <div class="hero-actions hero-actions-row">
           <button id="runNowBtn" class="primary-btn" type="button">立即测速</button>
@@ -23,135 +21,140 @@
         </div>
       </header>
 
-      <section class="monitor-grid">
-        <article class="monitor-card lattice-card">
+      <section class="control-strip">
+        <div class="control-cluster">
+          <span class="control-label">心跳目标</span>
+          <select id="heartbeatTargetSelect" class="select-pill">
+            {% for target in heartbeat_targets %}
+            <option value="{{ target }}" {% if target == heartbeat_target %}selected{% endif %}>{{ target }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div id="heartbeatRangeGroup" class="range-group">
+          <button class="range-btn active" data-heartbeat-hours="6" type="button">6 小时</button>
+          <button class="range-btn" data-heartbeat-hours="24" type="button">24 小时</button>
+          <button class="range-btn" data-heartbeat-hours="168" type="button">7 天</button>
+        </div>
+        <div id="heartbeatBucketGroup" class="range-group">
+          <button class="range-btn" data-heartbeat-bucket="1m" type="button">分钟</button>
+          <button class="range-btn active" data-heartbeat-bucket="5m" type="button">5 分钟</button>
+          <button class="range-btn" data-heartbeat-bucket="1h" type="button">小时</button>
+        </div>
+        <div class="range-group">
+          <button class="range-btn active" data-hours="24" type="button">测速 24h</button>
+          <button class="range-btn" data-hours="168" type="button">测速 7d</button>
+          <button class="range-btn" data-hours="720" type="button">测速 30d</button>
+          <button class="range-btn" data-hours="0" type="button">测速全部</button>
+        </div>
+      </section>
+
+      <p id="statusText" class="status-line">正在加载监控数据...</p>
+
+      <section class="chart-grid">
+        <article class="chart-card chart-span-7">
           <div class="chart-header">
             <div>
-              <h2>分钟级连通性晶格</h2>
-              <p>可切目标、范围和聚合粒度</p>
-            </div>
-            <div class="monitor-meta">
-              <span class="mini-pill {{ 'enabled' if heartbeat_enabled else 'disabled' }}">
-                {{ '运行中' if heartbeat_enabled else '已关闭' }}
-              </span>
-              <select id="heartbeatTargetSelect" class="select-pill">
-                {% for target in heartbeat_targets %}
-                <option value="{{ target }}" {% if target == heartbeat_target %}selected{% endif %}>{{ target }}</option>
-                {% endfor %}
-              </select>
-            </div>
-          </div>
-          <div class="control-row">
-            <div id="heartbeatRangeGroup" class="range-group">
-              <button class="range-btn active" data-heartbeat-hours="6" type="button">6 小时</button>
-              <button class="range-btn" data-heartbeat-hours="24" type="button">24 小时</button>
-              <button class="range-btn" data-heartbeat-hours="168" type="button">7 天</button>
-            </div>
-            <div id="heartbeatBucketGroup" class="range-group">
-              <button class="range-btn" data-heartbeat-bucket="1m" type="button">分钟</button>
-              <button class="range-btn active" data-heartbeat-bucket="5m" type="button">5 分钟</button>
-              <button class="range-btn" data-heartbeat-bucket="1h" type="button">小时</button>
+              <h2>连通性晶格</h2>
+              <p>按时间展示在线率与延迟状态，便于快速识别中断和抖动时段。</p>
             </div>
           </div>
           <div id="heartbeatLattice" class="heartbeat-lattice"></div>
-          <div class="lattice-legend">
+          <div class="legend compact-legend">
             <span class="legend-item"><span class="legend-swatch legend-up"></span>正常</span>
             <span class="legend-item"><span class="legend-swatch legend-warn"></span>高延迟</span>
             <span class="legend-item"><span class="legend-swatch legend-down"></span>失败</span>
-            <span class="legend-item"><span class="legend-swatch legend-empty"></span>无数据</span>
           </div>
         </article>
 
-        <article class="monitor-card monitor-side">
+        <article class="chart-card chart-span-5">
           <div class="chart-header">
             <div>
-              <h2>外网连通延迟视角</h2>
-              <p id="statusText">正在加载监控数据...</p>
+              <h2>链路诊断矩阵</h2>
+              <p>对比各目标的延迟分位、成功率和基线偏移，用于定位异常链路范围。</p>
             </div>
           </div>
-          <section id="heartbeatStats" class="heartbeat-stats"></section>
-          <div id="heartbeatSparkline" class="sparkline-card"></div>
-          <div id="heartbeatEvents" class="failure-list compact-events"></div>
+          <div id="targetCompareChart" class="chart-host compact-host"></div>
         </article>
-      </section>
 
-      <section class="toolbar">
-        <div class="range-group">
-          <button class="range-btn active" data-hours="24" type="button">24 小时</button>
-          <button class="range-btn" data-hours="168" type="button">7 天</button>
-          <button class="range-btn" data-hours="720" type="button">30 天</button>
-          <button class="range-btn" data-hours="0" type="button">全部</button>
-        </div>
-        <p class="status-text">下方曲线和统计按这个时间范围切换</p>
-      </section>
+        <article class="chart-card chart-span-12">
+          <div class="chart-header">
+            <div>
+              <h2>心跳延迟趋势</h2>
+              <p>展示平均延迟、p95、p99 与异常事件，观察短时波动与尾部风险。</p>
+            </div>
+          </div>
+          <div id="heartbeatSparkline" class="chart-host"></div>
+        </article>
 
-      <section class="focus-grid">
-        <article class="chart-card focus-chart">
+        <article class="chart-card chart-span-12">
           <div class="chart-header">
             <div>
               <h2>正式测速趋势</h2>
-              <p>图表主看波动，旁注主看结论</p>
+              <p>按时间查看下载、上传和延迟变化，辅助判断带宽波动与测速异常。</p>
             </div>
             <div id="serverBadge" class="server-badge">等待最近测速信息...</div>
           </div>
-          <div id="alertStrip" class="alert-strip"></div>
-          <div id="internetChart" class="chart-host"></div>
-        </article>
-
-        <article class="summary-card focus-side compact-side">
-          <div class="card-title">
-            <span>旁注与提示</span>
-            <span class="pill {{ 'enabled' if internet_enabled else 'disabled' }}">
-              {{ '运行中' if internet_enabled else '已关闭' }}
-            </span>
-          </div>
-          <div id="internetSummary" class="metric-stack compact-metric-stack"></div>
-          <section id="overviewGrid" class="overview-grid compact-overview"></section>
+          <div id="internetChart" class="chart-host triple-host"></div>
         </article>
       </section>
 
-      <section id="statsGrid" class="stats-grid stats-grid-compact"></section>
-
-      <section class="accordion-grid">
-        <details class="detail-accordion" open>
-          <summary>辅助画像</summary>
-          <div class="accordion-body two-col">
-            <div id="latestProfile" class="profile-grid compact-grid"></div>
-            <div id="strategyPanel" class="strategy-panel"></div>
+      <section class="table-grid">
+        <article class="detail-card">
+          <div class="table-title">心跳目标明细</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>目标</th>
+                  <th>样本</th>
+                  <th>成功率</th>
+                  <th>平均延迟</th>
+                  <th>最新时间</th>
+                </tr>
+              </thead>
+              <tbody id="heartbeatTargetTableBody"></tbody>
+            </table>
           </div>
-        </details>
+        </article>
 
-        <details class="detail-accordion">
-          <summary>告警与异常时段</summary>
-          <div class="accordion-body two-col">
-            <div id="streakPanel" class="failure-list"></div>
-            <div id="anomalyHoursPanel" class="failure-list"></div>
+        <article class="detail-card">
+          <div class="table-title">事件与异常记录</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>类型</th>
+                  <th>目标</th>
+                  <th>说明</th>
+                </tr>
+              </thead>
+              <tbody id="heartbeatEventTableBody"></tbody>
+            </table>
           </div>
-        </details>
+        </article>
 
-        <details class="detail-accordion">
-          <summary>历史与失败记录</summary>
-          <div class="accordion-body two-col">
-            <div id="failureList" class="failure-list"></div>
-            <div class="table-wrap table-wrap-compact">
-              <table>
-                <thead>
-                  <tr>
-                    <th>时间</th>
-                    <th>状态</th>
-                    <th>下载</th>
-                    <th>上传</th>
-                    <th>延迟</th>
-                    <th>节点</th>
-                  </tr>
-                </thead>
-                <tbody id="historyTableBody"></tbody>
-              </table>
-            </div>
+        <article class="detail-card">
+          <div class="table-title">测速历史明细</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>状态</th>
+                  <th>下载</th>
+                  <th>上传</th>
+                  <th>延迟</th>
+                  <th>节点</th>
+                </tr>
+              </thead>
+              <tbody id="historyTableBody"></tbody>
+            </table>
           </div>
-        </details>
+        </article>
       </section>
     </div>
+    <div id="chartTooltip" class="chart-tooltip" hidden></div>
 
     <script src="/static/app.js"></script>
   </body>

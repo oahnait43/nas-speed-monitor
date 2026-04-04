@@ -50,7 +50,7 @@ HEARTBEAT_TARGET = os.getenv("HEARTBEAT_TARGET", "223.5.5.5").strip() or "223.5.
 HEARTBEAT_TIMEOUT_SECONDS = env_int("HEARTBEAT_TIMEOUT_SECONDS", 2)
 HEARTBEAT_TARGETS = [
     item.strip()
-    for item in os.getenv("HEARTBEAT_TARGETS", f"{HEARTBEAT_TARGET},114.114.114.114,1.1.1.1").split(",")
+    for item in os.getenv("HEARTBEAT_TARGETS", f"{HEARTBEAT_TARGET},119.29.29.29,180.76.76.76,1.1.1.1,8.8.8.8").split(",")
     if item.strip()
 ]
 INTERNET_SERVER_ID = os.getenv("INTERNET_SPEEDTEST_SERVER_ID", "").strip()
@@ -102,6 +102,50 @@ app.config["JSON_AS_ASCII"] = False
 stop_event = threading.Event()
 job_lock = threading.Lock()
 PING_LATENCY_PATTERN = re.compile(r"time[=<]([\d.]+)\s*ms")
+HEARTBEAT_TARGET_CATALOG: dict[str, dict[str, str]] = {
+    "223.5.5.5": {
+        "group": "domestic",
+        "label": "AliDNS",
+        "provider": "Alibaba Cloud",
+        "role": "国内主基线",
+    },
+    "119.29.29.29": {
+        "group": "domestic",
+        "label": "DNSPod",
+        "provider": "Tencent Cloud",
+        "role": "国内副基线",
+    },
+    "180.76.76.76": {
+        "group": "domestic",
+        "label": "Baidu DNS",
+        "provider": "Baidu",
+        "role": "国内次级对照",
+    },
+    "1.1.1.1": {
+        "group": "international",
+        "label": "Cloudflare",
+        "provider": "Cloudflare",
+        "role": "国际近点",
+    },
+    "8.8.8.8": {
+        "group": "international",
+        "label": "Google Public DNS",
+        "provider": "Google",
+        "role": "国际高延迟对照",
+    },
+    "9.9.9.9": {
+        "group": "international",
+        "label": "Quad9",
+        "provider": "Quad9",
+        "role": "国际备用对照",
+    },
+    "208.67.222.222": {
+        "group": "international",
+        "label": "OpenDNS",
+        "provider": "Cisco OpenDNS",
+        "role": "国际备用对照",
+    },
+}
 
 
 def db_connect() -> sqlite3.Connection:
@@ -903,32 +947,64 @@ def aggregate_heartbeat_rows(rows: list[dict[str, Any]], bucket_minutes: int) ->
     return output
 
 
-def heartbeat_targets() -> list[dict[str, Any]]:
-    with closing(db_connect()) as conn:
-        rows = conn.execute(
-            """
-            SELECT
-                target,
-                COUNT(*) AS samples,
-                MAX(measured_at) AS latest_measured_at,
-                AVG(CASE WHEN success = 1 THEN latency_ms END) AS avg_latency_ms,
-                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count
-            FROM measurements
-            WHERE kind = 'heartbeat'
-            GROUP BY target
-            ORDER BY target ASC
-            """
-        ).fetchall()
-    return [
+def classify_heartbeat_target(target: str) -> str:
+    return HEARTBEAT_TARGET_CATALOG.get(target, {}).get("group", "international")
+
+
+def heartbeat_target_meta(target: str) -> dict[str, str]:
+    return HEARTBEAT_TARGET_CATALOG.get(
+        target,
         {
-            "target": row["target"],
-            "samples": row["samples"],
-            "latest_measured_at": row["latest_measured_at"],
-            "avg_latency_ms": round(row["avg_latency_ms"], 2) if row["avg_latency_ms"] is not None else None,
-            "success_rate": round((row["success_count"] / row["samples"]) * 100, 2) if row["samples"] else 0.0,
+            "group": classify_heartbeat_target(target),
+            "label": target,
+            "provider": "Custom",
+            "role": "自定义目标",
+        },
+    )
+
+
+def heartbeat_targets(hours: int = 24) -> list[dict[str, Any]]:
+    cutoff = (local_now() - timedelta(hours=hours)).isoformat() if hours > 0 else None
+    output: list[dict[str, Any]] = []
+    primary_target = HEARTBEAT_TARGETS[0] if HEARTBEAT_TARGETS else HEARTBEAT_TARGET
+    baseline_avg = None
+
+    for target in HEARTBEAT_TARGETS:
+        rows = fetch_history("heartbeat", hours, target)
+        samples = len(rows)
+        success_rows = [row for row in rows if row.get("success")]
+        latencies = [float(row["latency_ms"]) for row in success_rows if row.get("latency_ms") is not None]
+        latest = rows[-1] if rows else None
+        summary = {
+            "target": target,
+            **heartbeat_target_meta(target),
+            "samples": samples,
+            "latest_measured_at": latest["measured_at"] if latest else None,
+            "latest_success": latest.get("success") if latest else None,
+            "avg_latency_ms": round(sum(latencies) / len(latencies), 2) if latencies else None,
+            "p95_latency_ms": percentile(latencies, 0.95),
+            "p99_latency_ms": percentile(latencies, 0.99),
+            "success_rate": round((len(success_rows) / samples) * 100, 2) if samples else 0.0,
+            "failure_count": samples - len(success_rows),
         }
-        for row in rows
-    ]
+        if target == primary_target:
+            baseline_avg = summary["avg_latency_ms"]
+        output.append(summary)
+
+    for item in output:
+        if baseline_avg is not None and item["avg_latency_ms"] is not None:
+            item["delta_vs_primary_ms"] = round(item["avg_latency_ms"] - baseline_avg, 2)
+        else:
+            item["delta_vs_primary_ms"] = None
+        if item["success_rate"] < 95 or (item["latest_success"] is False):
+            item["health"] = "degraded"
+        elif item["avg_latency_ms"] is not None and item["avg_latency_ms"] > 60:
+            item["health"] = "slow"
+        else:
+            item["health"] = "healthy"
+
+    output.sort(key=lambda item: (item["group"], item["target"]))
+    return output
 
 
 def fetch_heartbeat_summary(hours: int) -> dict[str, Any]:
@@ -1073,7 +1149,8 @@ def api_heartbeat_summary():
 
 @app.route("/api/heartbeat/targets")
 def api_heartbeat_targets():
-    return jsonify(heartbeat_targets())
+    hours = int(request.args.get("hours", "24"))
+    return jsonify(heartbeat_targets(hours))
 
 
 @app.route("/api/heartbeat/dashboard")
