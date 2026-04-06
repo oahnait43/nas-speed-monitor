@@ -26,6 +26,10 @@ const targetCompareChart = document.getElementById("targetCompareChart");
 const internetChart = document.getElementById("internetChart");
 const chartTooltip = document.getElementById("chartTooltip");
 
+function speedtestScheduleSummary() {
+  return "正式测速固定时刻 01:30 / 07:30 / 13:30 / 19:30";
+}
+
 function isMobileViewport() {
   return window.innerWidth <= 760;
 }
@@ -564,7 +568,7 @@ async function refresh() {
   renderHeartbeatTargetTable();
   renderHeartbeatEventTable();
   renderHistoryTable();
-  statusText.textContent = `心跳 ${state.heartbeat.target} · ${state.heartbeat.bucket} · 最近 ${state.heartbeat.hours} 小时；测速展示 ${state.hours === 0 ? "全部历史" : `最近 ${state.hours} 小时`}`;
+  statusText.textContent = `心跳 ${state.heartbeat.target} · ${state.heartbeat.bucket} · 最近 ${state.heartbeat.hours} 小时；${speedtestScheduleSummary()}；测速展示 ${state.hours === 0 ? "全部历史" : `最近 ${state.hours} 小时`}`;
 }
 
 document.querySelectorAll(".range-btn[data-hours]").forEach((button) => {

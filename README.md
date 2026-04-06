@@ -58,6 +58,7 @@
 - 自动识别断流和延迟毛刺事件
 - 心跳图展示 `p95 / p99`
 - 正式测速使用 Ookla 官方 CLI
+- 支持 Bark 推送通知，适配 Cloudflare Worker Webhook
 - 历史数据持久化到 SQLite
 - 支持导出 CSV
 - 支持手动触发测速
@@ -104,6 +105,8 @@ http://你的NAS地址:8080
   - 心跳探测目标列表
 - `SCHEDULE_MINUTES`
   - 正式测速周期
+- `SCHEDULE_CLOCK_TIMES`
+  - 正式测速固定时刻，优先级高于 `SCHEDULE_MINUTES`
 - `HEARTBEAT_INTERVAL_SECONDS`
   - 心跳采样周期
 - `RETENTION_DAYS`
@@ -116,7 +119,8 @@ http://你的NAS地址:8080
 | 变量 | 默认值 | 说明 |
 |---|---:|---|
 | `TZ_OFFSET_HOURS` | `8` | 时区偏移 |
-| `SCHEDULE_MINUTES` | `30` | 正式测速周期，单位分钟 |
+| `SCHEDULE_MINUTES` | `120` | 正式测速周期，单位分钟；仅在未设置固定时刻时生效 |
+| `SCHEDULE_CLOCK_TIMES` | `07:30,13:30,19:30,01:30` | 正式测速固定执行时刻，按本地时区每天执行 |
 | `RUN_ON_START` | `true` | 容器启动后是否立即跑一次正式测速 |
 | `ENABLE_INTERNET_TEST` | `true` | 是否启用外网 Speedtest |
 | `ENABLE_LAN_TEST` | `true` | 是否启用内网 `iperf3` |
@@ -138,8 +142,27 @@ http://你的NAS地址:8080
 | `LAN_IPERF_DURATION_SECONDS` | `10` | 单次内网测速时长 |
 | `RETENTION_DAYS` | `0` | 数据保留天数，`0` 表示不自动清理 |
 | `DATA_DIR` | `/data` | SQLite 数据目录 |
+| `ENABLE_BARK_NOTIFICATIONS` | `false` | 是否启用 Bark 通知 |
+| `BARK_WEBHOOK_URL` | 空 | Bark 的 Cloudflare Worker Webhook 地址，支持 `/icloud`、`/api/webhook` 或带 `{token}` 占位符的完整路径 |
+| `BARK_WEBHOOK_TOKEN` | 空 | Bark Webhook 鉴权 token；如果 URL 末尾是 `/icloud` 或 `/api/webhook`，会自动拼到路径里 |
+| `BARK_SOURCE_NAME` | `NAS 外网监测` | 推送消息来源名称 |
+| `BARK_DEDUP_MINUTES` | `30` | 相同事件去重窗口 |
+| `BARK_DAILY_REPORT_HOUR` | `8` | 每日摘要推送小时 |
+| `BARK_DAILY_REPORT_MINUTE` | `30` | 每日摘要推送分钟 |
+| `NOTIFY_DOMESTIC_FAILURE_STREAK` | `2` | 国内链路连续失败多少次后触发告警 |
+| `NOTIFY_DOMESTIC_LOOKBACK_MINUTES` | `15` | 国内链路告警观察窗口 |
+| `NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES` | `30` | 国际链路“转好”观察窗口 |
+| `NOTIFY_INTERNATIONAL_SUCCESS_RATE` | `95` | 国际链路视为畅通的成功率阈值 |
+| `NOTIFY_INTERNATIONAL_LATENCY_MS` | `120` | 国际链路视为畅通的 p95 延迟阈值 |
+| `NOTIFY_SPEEDTEST_DOWNLOAD_MBPS` | `300` | 触发测速严重降速告警的下载阈值 |
+| `NOTIFY_SPEEDTEST_UPLOAD_MBPS` | `20` | 触发测速严重异常告警的上传阈值 |
+| `NOTIFY_SPEEDTEST_LATENCY_MS` | `80` | 触发测速严重异常告警的延迟阈值 |
+| `NOTIFY_SPEEDTEST_DURATION_SECONDS` | `120` | 触发测速严重异常告警的测速耗时阈值 |
+| `NOTIFY_SPEEDTEST_STREAK` | `2` | 连续多少次测速严重异常后才推送 |
 
 ## 数据存储
+
+通用 Bark 网关接入规范见 [BARK_GATEWAY.md](/Users/tian/Documents/New%20project/BARK_GATEWAY.md)。
 
 默认 SQLite 文件位置：
 
@@ -176,8 +199,44 @@ volumes:
   - 手动触发正式测速
 - `POST /api/admin/cleanup-legacy`
   - 清理旧版低质量样本
+- `POST /api/admin/test-notify`
+  - 发送一条 Bark 测试通知
 - `GET /api/export.csv`
   - 导出 CSV
+
+## Bark 推送策略
+
+当前版本的 Bark 策略偏克制，避免高频打扰：
+
+- 国内链路异常
+  - 任一国内基线目标连续失败达到阈值后立即推送
+  - 恢复后再补一条恢复通知
+- 国际链路转好
+  - 国际目标在观察窗口内成功率和 `p95` 同时达标时推送
+  - 更适合“平时不稳定，偶尔变顺畅时提醒”
+- 正式测速严重异常
+  - 采用单独、更宽松的通知阈值
+  - 只有连续多次明显降速或高延迟才推送
+- 每日摘要
+  - 每天固定时间推送 24 小时在线率、延迟和测速概况
+
+如果你已有 Cloudflare Worker 转发 Bark，可以直接填写：
+
+```text
+ENABLE_BARK_NOTIFICATIONS=true
+BARK_WEBHOOK_URL=https://你的-worker/icloud
+BARK_WEBHOOK_TOKEN=你的-token
+```
+
+也可以直接写成完整路径：
+
+```text
+BARK_WEBHOOK_URL=https://你的-worker/icloud/你的-token
+```
+
+如果你希望把 Bark 网关单独标准化给其他 NAS 或脚本项目复用，可以参考：
+
+- [BARK_GATEWAY.md](/Users/tian/Documents/New%20project/BARK_GATEWAY.md)
 
 ## NAS 部署建议
 

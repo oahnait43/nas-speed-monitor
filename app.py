@@ -9,7 +9,6 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-
 from flask import Flask, jsonify, render_template, request, send_file
 
 
@@ -37,7 +36,12 @@ def env_float(name: str, default: float) -> float:
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DB_PATH = DATA_DIR / os.getenv("DB_NAME", "speed_history.db")
 TIMEZONE_OFFSET = env_int("TZ_OFFSET_HOURS", 8)
-SCHEDULE_MINUTES = env_int("SCHEDULE_MINUTES", 30)
+SCHEDULE_MINUTES = env_int("SCHEDULE_MINUTES", 120)
+SCHEDULE_CLOCK_TIMES = [
+    item.strip()
+    for item in os.getenv("SCHEDULE_CLOCK_TIMES", "").split(",")
+    if item.strip()
+]
 RUN_ON_START = env_bool("RUN_ON_START", True)
 ENABLE_INTERNET_TEST = env_bool("ENABLE_INTERNET_TEST", True)
 ENABLE_LAN_TEST = env_bool("ENABLE_LAN_TEST", True)
@@ -63,6 +67,24 @@ UPLOAD_ALERT_Mbps = env_float("UPLOAD_ALERT_MBPS", 1.0)
 LATENCY_ALERT_MS = env_float("LATENCY_ALERT_MS", 100.0)
 TEST_DURATION_ALERT_SECONDS = env_float("TEST_DURATION_ALERT_SECONDS", 60.0)
 SPEEDTEST_BIN = os.getenv("SPEEDTEST_BIN", "speedtest")
+ENABLE_BARK_NOTIFICATIONS = env_bool("ENABLE_BARK_NOTIFICATIONS", False)
+BARK_WEBHOOK_URL = os.getenv("BARK_WEBHOOK_URL", "").strip()
+BARK_WEBHOOK_TOKEN = os.getenv("BARK_WEBHOOK_TOKEN", "").strip()
+BARK_SOURCE_NAME = os.getenv("BARK_SOURCE_NAME", "NAS 外网监测").strip() or "NAS 外网监测"
+BARK_PUSH_TIMEOUT_SECONDS = env_float("BARK_PUSH_TIMEOUT_SECONDS", 8.0)
+BARK_DEDUP_MINUTES = env_int("BARK_DEDUP_MINUTES", 30)
+BARK_DAILY_REPORT_HOUR = env_int("BARK_DAILY_REPORT_HOUR", 9)
+BARK_DAILY_REPORT_MINUTE = env_int("BARK_DAILY_REPORT_MINUTE", 0)
+NOTIFY_DOMESTIC_FAILURE_STREAK = env_int("NOTIFY_DOMESTIC_FAILURE_STREAK", 2)
+NOTIFY_DOMESTIC_LOOKBACK_MINUTES = env_int("NOTIFY_DOMESTIC_LOOKBACK_MINUTES", 15)
+NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES = env_int("NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES", 30)
+NOTIFY_INTERNATIONAL_SUCCESS_RATE = env_float("NOTIFY_INTERNATIONAL_SUCCESS_RATE", 95.0)
+NOTIFY_INTERNATIONAL_LATENCY_MS = env_float("NOTIFY_INTERNATIONAL_LATENCY_MS", 120.0)
+NOTIFY_SPEEDTEST_DOWNLOAD_MBPS = env_float("NOTIFY_SPEEDTEST_DOWNLOAD_MBPS", 300.0)
+NOTIFY_SPEEDTEST_UPLOAD_MBPS = env_float("NOTIFY_SPEEDTEST_UPLOAD_MBPS", 20.0)
+NOTIFY_SPEEDTEST_LATENCY_MS = env_float("NOTIFY_SPEEDTEST_LATENCY_MS", 80.0)
+NOTIFY_SPEEDTEST_DURATION_SECONDS = env_float("NOTIFY_SPEEDTEST_DURATION_SECONDS", 120.0)
+NOTIFY_SPEEDTEST_STREAK = env_int("NOTIFY_SPEEDTEST_STREAK", 2)
 
 
 BASE_COLUMNS = [
@@ -180,6 +202,15 @@ def init_db() -> None:
             ON measurements(kind, measured_at DESC)
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_state (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 
@@ -194,6 +225,41 @@ def iso_now() -> str:
 
 def parse_iso(value: str) -> datetime:
     return datetime.fromisoformat(value)
+
+
+def get_state(key: str, default: str | None = None) -> str | None:
+    with closing(db_connect()) as conn:
+        row = conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_state(key: str, value: str) -> None:
+    with closing(db_connect()) as conn:
+        conn.execute(
+            """
+            INSERT INTO app_state(key, value, updated_at)
+            VALUES(?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            """,
+            (key, value, iso_now()),
+        )
+        conn.commit()
+
+
+def get_state_json(key: str, default: Any) -> Any:
+    raw = get_state(key)
+    if raw is None:
+        return default
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return default
+
+
+def set_state_json(key: str, value: Any) -> None:
+    set_state(key, json.dumps(value, ensure_ascii=False))
 
 
 def percentile(values: list[float], p: float) -> float | None:
@@ -213,6 +279,47 @@ def percentile(values: list[float], p: float) -> float | None:
 def floor_time(dt: datetime, minutes: int) -> datetime:
     minute = (dt.minute // minutes) * minutes
     return dt.replace(minute=minute, second=0, microsecond=0)
+
+
+def parse_schedule_clock(value: str) -> tuple[int, int]:
+    parts = value.split(":", 1)
+    if len(parts) != 2:
+        raise ValueError(f"无效的定时格式: {value}")
+    hour = int(parts[0])
+    minute = int(parts[1])
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        raise ValueError(f"无效的定时时间: {value}")
+    return hour, minute
+
+
+def normalized_schedule_clocks() -> list[tuple[int, int]]:
+    clocks: list[tuple[int, int]] = []
+    for item in SCHEDULE_CLOCK_TIMES:
+        try:
+            clocks.append(parse_schedule_clock(item))
+        except ValueError:
+            continue
+    return sorted(set(clocks))
+
+
+def next_scheduled_run(after: datetime | None = None) -> datetime:
+    base = after or local_now()
+    clocks = normalized_schedule_clocks()
+    if not clocks:
+        return base + timedelta(minutes=max(SCHEDULE_MINUTES, 1))
+
+    candidates: list[datetime] = []
+    for day_offset in (0, 1):
+        target_day = (base + timedelta(days=day_offset)).date()
+        for hour, minute in clocks:
+            candidate = datetime.combine(
+                target_day,
+                datetime.min.time(),
+                tzinfo=base.tzinfo,
+            ).replace(hour=hour, minute=minute)
+            if candidate > base:
+                candidates.append(candidate)
+    return min(candidates) if candidates else base + timedelta(days=1)
 
 
 def prune_old_data() -> None:
@@ -549,6 +656,7 @@ def run_single_heartbeat_test(target: str) -> None:
 def run_heartbeat_test() -> None:
     for target in HEARTBEAT_TARGETS:
         run_single_heartbeat_test(target)
+    evaluate_notifications("heartbeat")
 
 
 def run_all_tests() -> None:
@@ -560,6 +668,7 @@ def run_all_tests() -> None:
         if ENABLE_LAN_TEST:
             run_lan_test()
         prune_old_data()
+        evaluate_notifications("speedtest")
     finally:
         job_lock.release()
 
@@ -570,19 +679,21 @@ def scheduler_loop() -> None:
     if ENABLE_HEARTBEAT_TEST:
         run_heartbeat_test()
 
-    next_speedtest = time.monotonic() + max(SCHEDULE_MINUTES * 60, 1)
+    next_speedtest_at = next_scheduled_run()
     next_heartbeat = time.monotonic() + max(HEARTBEAT_INTERVAL_SECONDS, 1)
     while not stop_event.is_set():
-        wait_for = max(0.5, min(next_speedtest, next_heartbeat) - time.monotonic())
+        speedtest_wait = max(0.5, (next_speedtest_at - local_now()).total_seconds())
+        heartbeat_wait = max(0.5, next_heartbeat - time.monotonic())
+        wait_for = max(0.5, min(speedtest_wait, heartbeat_wait))
         if stop_event.wait(wait_for):
             break
         now = time.monotonic()
         if ENABLE_HEARTBEAT_TEST and now >= next_heartbeat:
             run_heartbeat_test()
             next_heartbeat = now + max(HEARTBEAT_INTERVAL_SECONDS, 1)
-        if now >= next_speedtest:
+        if local_now() >= next_speedtest_at:
             run_all_tests()
-            next_speedtest = now + max(SCHEDULE_MINUTES * 60, 1)
+            next_speedtest_at = next_scheduled_run()
 
 
 def latest_rows() -> dict[str, dict[str, Any] | None]:
@@ -645,6 +756,108 @@ def fetch_history(kind: str, hours: int, target: str | None = None) -> list[dict
             item.get("test_duration_ms"),
         )
     return items
+
+
+def recent_rows(kind: str, minutes: int, target: str | None = None) -> list[dict[str, Any]]:
+    rows = fetch_history(kind, max(1, int((minutes / 60) + 1)), target)
+    cutoff = local_now() - timedelta(minutes=minutes)
+    return [row for row in rows if parse_iso(row["measured_at"]) >= cutoff]
+
+
+def notify_speedtest_flags(row: dict[str, Any]) -> list[str]:
+    flags: list[str] = []
+    if row.get("success") != 1:
+        flags.append("speedtest_failed")
+        return flags
+    if row.get("download_mbps") is not None and float(row["download_mbps"]) < NOTIFY_SPEEDTEST_DOWNLOAD_MBPS:
+        flags.append("download_low")
+    if row.get("upload_mbps") is not None and float(row["upload_mbps"]) < NOTIFY_SPEEDTEST_UPLOAD_MBPS:
+        flags.append("upload_low")
+    if row.get("latency_ms") is not None and float(row["latency_ms"]) > NOTIFY_SPEEDTEST_LATENCY_MS:
+        flags.append("latency_high")
+    if row.get("test_duration_ms") is not None and int(row["test_duration_ms"]) > int(NOTIFY_SPEEDTEST_DURATION_SECONDS * 1000):
+        flags.append("duration_high")
+    return flags
+
+
+def bark_enabled() -> bool:
+    return ENABLE_BARK_NOTIFICATIONS and bool(BARK_WEBHOOK_URL)
+
+
+def bark_post(title: str, body: str) -> tuple[bool, str]:
+    if not bark_enabled():
+        return False, "Bark 未启用"
+    webhook_url = BARK_WEBHOOK_URL
+    if BARK_WEBHOOK_TOKEN and "{token}" in webhook_url:
+        webhook_url = webhook_url.replace("{token}", BARK_WEBHOOK_TOKEN)
+    elif BARK_WEBHOOK_TOKEN and webhook_url.rstrip("/").endswith("/icloud"):
+        webhook_url = f"{webhook_url.rstrip('/')}/{BARK_WEBHOOK_TOKEN}"
+    elif BARK_WEBHOOK_TOKEN and webhook_url.rstrip("/").endswith("/api/webhook"):
+        webhook_url = f"{webhook_url.rstrip('/')}/{BARK_WEBHOOK_TOKEN}"
+    payload = {
+        "data": f"{BARK_SOURCE_NAME} - {title}\n{body}".strip(),
+    }
+    cmd = [
+        "curl",
+        "-sS",
+        "-X",
+        "POST",
+        webhook_url,
+        "-H",
+        "content-type: application/json",
+        "--data",
+        json.dumps(payload, ensure_ascii=False),
+    ]
+    if BARK_WEBHOOK_TOKEN and "{token}" not in BARK_WEBHOOK_URL and not BARK_WEBHOOK_URL.rstrip("/").endswith("/icloud") and not BARK_WEBHOOK_URL.rstrip("/").endswith("/api/webhook"):
+        cmd.extend(["-H", f"x-icloudpd-token: {BARK_WEBHOOK_TOKEN}"])
+    try:
+        completed = subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=max(3, int(BARK_PUSH_TIMEOUT_SECONDS)),
+        )
+        text = (completed.stdout or "").strip() or (completed.stderr or "").strip() or "ok"
+        return True, text
+    except subprocess.CalledProcessError as exc:
+        return False, (exc.stderr or exc.stdout or str(exc)).strip()
+    except subprocess.TimeoutExpired:
+        return False, "Bark webhook 请求超时"
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)
+
+
+def should_send_notification(event_key: str, dedup_minutes: int | None = None) -> bool:
+    dedup = dedup_minutes if dedup_minutes is not None else BARK_DEDUP_MINUTES
+    last_sent = get_state(f"notify:last_sent:{event_key}")
+    if not last_sent:
+        return True
+    return parse_iso(last_sent) <= (local_now() - timedelta(minutes=dedup))
+
+
+def mark_notification_sent(event_key: str) -> None:
+    set_state(f"notify:last_sent:{event_key}", iso_now())
+
+
+def transition_flag_state(name: str, active: bool) -> tuple[bool, bool]:
+    key = f"notify:state:{name}"
+    previous = get_state(key, "0") == "1"
+    current = "1" if active else "0"
+    if current != ("1" if previous else "0"):
+        set_state(key, current)
+    return previous, active
+
+
+def send_bark_notification(event_key: str, title: str, body: str, dedup_minutes: int | None = None) -> bool:
+    if not bark_enabled() or not should_send_notification(event_key, dedup_minutes):
+        return False
+    ok, response_text = bark_post(title, body)
+    if ok:
+        mark_notification_sent(event_key)
+    else:
+        set_state(f"notify:last_error:{event_key}", response_text)
+    return ok
 
 
 def fetch_internet_summary(hours: int) -> dict[str, Any]:
@@ -1103,6 +1316,138 @@ def fetch_heartbeat_dashboard(hours: int, bucket: str, target: str | None) -> di
     }
 
 
+def consecutive_failures(rows: list[dict[str, Any]]) -> int:
+    streak = 0
+    for row in reversed(rows):
+        if row.get("success"):
+            break
+        streak += 1
+    return streak
+
+
+def evaluate_domestic_notifications() -> None:
+    domestic_targets = [target for target in HEARTBEAT_TARGETS if classify_heartbeat_target(target) == "domestic"]
+    for target in domestic_targets:
+        rows = recent_rows("heartbeat", NOTIFY_DOMESTIC_LOOKBACK_MINUTES, target)
+        if not rows:
+            continue
+        streak = consecutive_failures(rows)
+        latest = rows[-1]
+        active = streak >= NOTIFY_DOMESTIC_FAILURE_STREAK
+        previous, current = transition_flag_state(f"domestic_outage:{target}", active)
+        meta = heartbeat_target_meta(target)
+        if current and not previous:
+            send_bark_notification(
+                f"domestic_outage:{target}",
+                "国内链路异常",
+                f"{target} {meta['label']} 连续失败 {streak} 次，最近一次时间 {latest['measured_at']}。",
+                dedup_minutes=10,
+            )
+        elif previous and not current:
+            latency = latest.get("latency_ms")
+            latency_text = f"{float(latency):.2f} ms" if latency is not None else "恢复"
+            send_bark_notification(
+                f"domestic_outage_recovery:{target}",
+                "国内链路恢复",
+                f"{target} {meta['label']} 已恢复，当前延迟 {latency_text}，恢复时间 {latest['measured_at']}。",
+                dedup_minutes=10,
+            )
+
+
+def evaluate_international_recovery_notifications() -> None:
+    international_targets = [target for target in HEARTBEAT_TARGETS if classify_heartbeat_target(target) == "international"]
+    for target in international_targets:
+        rows = recent_rows("heartbeat", NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES, target)
+        success_rows = [row for row in rows if row.get("success") and row.get("latency_ms") is not None]
+        latencies = [float(row["latency_ms"]) for row in success_rows]
+        success_rate = round((len(success_rows) / len(rows)) * 100, 2) if rows else 0.0
+        p95_latency = percentile(latencies, 0.95)
+        active = bool(
+            rows
+            and success_rate >= NOTIFY_INTERNATIONAL_SUCCESS_RATE
+            and p95_latency is not None
+            and p95_latency <= NOTIFY_INTERNATIONAL_LATENCY_MS
+        )
+        previous, current = transition_flag_state(f"international_good:{target}", active)
+        if current and not previous:
+            meta = heartbeat_target_meta(target)
+            send_bark_notification(
+                f"international_good:{target}",
+                "国际链路转好",
+                f"{target} {meta['label']} 最近 {NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES} 分钟成功率 {success_rate:.2f}%，p95 {p95_latency:.2f} ms。",
+                dedup_minutes=120,
+            )
+
+
+def evaluate_speedtest_notifications() -> None:
+    rows = fetch_history("internet", 24)
+    if not rows:
+        return
+    success_rows = [row for row in rows if row.get("success")]
+    latest_success = success_rows[-1] if success_rows else None
+    latest_rows = success_rows[-NOTIFY_SPEEDTEST_STREAK:] if success_rows else []
+    active = len(latest_rows) >= NOTIFY_SPEEDTEST_STREAK and all(notify_speedtest_flags(row) for row in latest_rows)
+    previous, current = transition_flag_state("speedtest_anomaly", active)
+    if current and not previous and latest_success:
+        flags = notify_speedtest_flags(latest_success)
+        parts = [
+            f"下载 {latest_success.get('download_mbps', '--')} Mbps",
+            f"上传 {latest_success.get('upload_mbps', '--')} Mbps",
+            f"延迟 {latest_success.get('latency_ms', '--')} ms",
+        ]
+        if latest_success.get("server_sponsor") or latest_success.get("server_name"):
+            parts.append(f"节点 {(latest_success.get('server_sponsor') or latest_success.get('server_name'))}")
+        send_bark_notification(
+            "speedtest_anomaly",
+            "测速明显异常",
+            f"连续 {NOTIFY_SPEEDTEST_STREAK} 次测速异常，命中 {', '.join(flags)}。{'，'.join(parts)}。",
+            dedup_minutes=90,
+        )
+    elif previous and not current and latest_success:
+        send_bark_notification(
+            "speedtest_recovery",
+            "测速恢复",
+            f"下载 {latest_success.get('download_mbps', '--')} Mbps，上传 {latest_success.get('upload_mbps', '--')} Mbps，延迟 {latest_success.get('latency_ms', '--')} ms。",
+            dedup_minutes=90,
+        )
+
+
+def evaluate_daily_report_notification() -> None:
+    now = local_now()
+    if now.hour != BARK_DAILY_REPORT_HOUR or now.minute < BARK_DAILY_REPORT_MINUTE:
+        return
+    report_day = now.strftime("%Y-%m-%d")
+    if get_state("notify:daily_report_day") == report_day:
+        return
+    heartbeat = fetch_heartbeat_summary(24)
+    internet = fetch_internet_summary(24)
+    targets = heartbeat_targets(24)
+    domestic_status = [item for item in targets if item["group"] == "domestic"]
+    international_status = [item for item in targets if item["group"] == "international"]
+    domestic_ok = sum(1 for item in domestic_status if item["health"] == "healthy")
+    international_ok = sum(1 for item in international_status if item["health"] == "healthy")
+    latest = internet.get("latest_success") or {}
+    body = (
+        f"24h 连通率 {heartbeat['uptime_ratio']:.2f}%，主目标均值 {heartbeat.get('avg_latency_ms') or '--'} ms；"
+        f"测速均值 下载 {round(internet.get('avg_download_mbps') or 0, 2)} Mbps / 上传 {round(internet.get('avg_upload_mbps') or 0, 2)} Mbps / 延迟 {round(internet.get('avg_latency_ms') or 0, 2)} ms；"
+        f"国内健康 {domestic_ok}/{len(domestic_status)}，国际健康 {international_ok}/{len(international_status)}；"
+        f"最近测速节点 {latest.get('server_sponsor') or latest.get('server_name') or '--'}。"
+    )
+    if send_bark_notification("daily_report", "网络日报", body, dedup_minutes=60):
+        set_state("notify:daily_report_day", report_day)
+
+
+def evaluate_notifications(trigger: str) -> None:
+    if not bark_enabled():
+        return
+    if trigger in {"heartbeat", "all"}:
+        evaluate_domestic_notifications()
+        evaluate_international_recovery_notifications()
+    if trigger in {"speedtest", "all"}:
+        evaluate_speedtest_notifications()
+    evaluate_daily_report_notification()
+
+
 @app.route("/")
 def index() -> str:
     return render_template(
@@ -1183,6 +1528,17 @@ def api_run():
 def api_cleanup_legacy():
     deleted = cleanup_legacy_internet_samples()
     return jsonify({"ok": True, "deleted": deleted})
+
+
+@app.route("/api/admin/test-notify", methods=["POST"])
+def api_test_notify():
+    ok = send_bark_notification(
+        "manual_test",
+        "测试通知",
+        "这是一条来自 NAS 外网监测面板的测试消息，用于确认 Bark 推送链路可用。",
+        dedup_minutes=0,
+    )
+    return jsonify({"ok": ok, "enabled": bark_enabled()})
 
 
 @app.route("/api/export.csv")
