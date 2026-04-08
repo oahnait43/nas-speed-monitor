@@ -54,7 +54,10 @@
         <article class="chart-card chart-span-7">
           <div class="chart-header">
             <div>
-              <h2>连通性晶格</h2>
+              <div class="section-heading">
+                <h2>连通性晶格</h2>
+                <button class="info-trigger" type="button" data-info-key="heartbeat-lattice" aria-label="查看连通性晶格说明">?</button>
+              </div>
               <p>按时间展示在线率与延迟状态，便于快速识别中断和抖动时段。</p>
             </div>
           </div>
@@ -69,7 +72,10 @@
         <article class="chart-card chart-span-5">
           <div class="chart-header">
             <div>
-              <h2>链路诊断矩阵</h2>
+              <div class="section-heading">
+                <h2>链路诊断矩阵</h2>
+                <button class="info-trigger" type="button" data-info-key="target-compare" aria-label="查看链路诊断矩阵说明">?</button>
+              </div>
               <p>对比各目标的延迟分位、成功率和基线偏移，用于定位异常链路范围。</p>
             </div>
           </div>
@@ -79,7 +85,10 @@
         <article class="chart-card chart-span-12">
           <div class="chart-header">
             <div>
-              <h2>心跳延迟趋势</h2>
+              <div class="section-heading">
+                <h2>心跳延迟趋势</h2>
+                <button class="info-trigger" type="button" data-info-key="heartbeat-trend" aria-label="查看心跳延迟趋势说明">?</button>
+              </div>
               <p>展示平均延迟、p95、p99 与异常事件，观察短时波动与尾部风险。</p>
             </div>
           </div>
@@ -89,7 +98,10 @@
         <article class="chart-card chart-span-12">
           <div class="chart-header">
             <div>
-              <h2>正式测速趋势</h2>
+              <div class="section-heading">
+                <h2>正式测速趋势</h2>
+                <button class="info-trigger" type="button" data-info-key="internet-trend" aria-label="查看正式测速趋势说明">?</button>
+              </div>
               <p>每日固定 4 次测速，默认在 01:30、07:30、13:30、19:30 执行，用于观察关键时段的带宽与延迟变化。</p>
             </div>
             <div id="serverBadge" class="server-badge">等待最近测速信息...</div>
@@ -100,7 +112,10 @@
 
       <section class="table-grid">
         <article class="detail-card">
-          <div class="table-title">心跳目标明细</div>
+          <div class="table-title-row">
+            <div class="table-title">心跳目标明细</div>
+            <button class="info-trigger" type="button" data-info-key="heartbeat-target-table" aria-label="查看心跳目标明细说明">?</button>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -118,7 +133,10 @@
         </article>
 
         <article class="detail-card">
-          <div class="table-title">事件与异常记录</div>
+          <div class="table-title-row">
+            <div class="table-title">事件与异常记录</div>
+            <button class="info-trigger" type="button" data-info-key="heartbeat-event-table" aria-label="查看事件与异常记录说明">?</button>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -135,7 +153,10 @@
         </article>
 
         <article class="detail-card">
-          <div class="table-title">测速历史明细</div>
+          <div class="table-title-row">
+            <div class="table-title">测速历史明细</div>
+            <button class="info-trigger" type="button" data-info-key="history-table" aria-label="查看测速历史明细说明">?</button>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -155,6 +176,14 @@
       </section>
     </div>
     <div id="chartTooltip" class="chart-tooltip" hidden></div>
+    <div id="infoModal" class="info-modal" hidden>
+      <div id="infoModalBackdrop" class="info-modal-backdrop"></div>
+      <div class="info-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="infoModalTitle">
+        <button id="infoModalClose" class="info-modal-close" type="button" aria-label="关闭说明">×</button>
+        <h3 id="infoModalTitle" class="info-modal-title">说明</h3>
+        <div id="infoModalBody" class="info-modal-body"></div>
+      </div>
+    </div>
 
     <script src="/static/app.js"></script>
   </body>

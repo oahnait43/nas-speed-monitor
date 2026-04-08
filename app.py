@@ -9,6 +9,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 from flask import Flask, jsonify, render_template, request, send_file
 
 
@@ -57,6 +58,11 @@ HEARTBEAT_TARGETS = [
     for item in os.getenv("HEARTBEAT_TARGETS", f"{HEARTBEAT_TARGET},119.29.29.29,180.76.76.76,1.1.1.1,8.8.8.8").split(",")
     if item.strip()
 ]
+NOTIFY_INTERNATIONAL_TARGETS = [
+    item.strip()
+    for item in os.getenv("NOTIFY_INTERNATIONAL_TARGETS", "8.8.8.8").split(",")
+    if item.strip()
+]
 INTERNET_SERVER_ID = os.getenv("INTERNET_SPEEDTEST_SERVER_ID", "").strip()
 INTERNET_SERVER_POOL = [item.strip() for item in os.getenv("INTERNET_SERVER_POOL", "").split(",") if item.strip()]
 RETENTION_DAYS = env_int("RETENTION_DAYS", 0)
@@ -78,8 +84,13 @@ BARK_DAILY_REPORT_MINUTE = env_int("BARK_DAILY_REPORT_MINUTE", 0)
 NOTIFY_DOMESTIC_FAILURE_STREAK = env_int("NOTIFY_DOMESTIC_FAILURE_STREAK", 2)
 NOTIFY_DOMESTIC_LOOKBACK_MINUTES = env_int("NOTIFY_DOMESTIC_LOOKBACK_MINUTES", 15)
 NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES = env_int("NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES", 30)
-NOTIFY_INTERNATIONAL_SUCCESS_RATE = env_float("NOTIFY_INTERNATIONAL_SUCCESS_RATE", 95.0)
-NOTIFY_INTERNATIONAL_LATENCY_MS = env_float("NOTIFY_INTERNATIONAL_LATENCY_MS", 120.0)
+NOTIFY_INTERNATIONAL_SUCCESS_RATE = env_float("NOTIFY_INTERNATIONAL_SUCCESS_RATE", 98.0)
+NOTIFY_INTERNATIONAL_LATENCY_MS = env_float("NOTIFY_INTERNATIONAL_LATENCY_MS", 190.0)
+NOTIFY_INTERNATIONAL_ANOMALY_SUCCESS_RATE = env_float("NOTIFY_INTERNATIONAL_ANOMALY_SUCCESS_RATE", 80.0)
+NOTIFY_INTERNATIONAL_ANOMALY_LATENCY_MS = env_float("NOTIFY_INTERNATIONAL_ANOMALY_LATENCY_MS", 220.0)
+NOTIFY_INTERNATIONAL_FAILURE_STREAK = env_int("NOTIFY_INTERNATIONAL_FAILURE_STREAK", 3)
+NOTIFY_INTERNATIONAL_BAD_TARGETS = env_int("NOTIFY_INTERNATIONAL_BAD_TARGETS", 2)
+NOTIFY_INTERNATIONAL_RECOVERY_MINUTES = env_int("NOTIFY_INTERNATIONAL_RECOVERY_MINUTES", 15)
 NOTIFY_SPEEDTEST_DOWNLOAD_MBPS = env_float("NOTIFY_SPEEDTEST_DOWNLOAD_MBPS", 300.0)
 NOTIFY_SPEEDTEST_UPLOAD_MBPS = env_float("NOTIFY_SPEEDTEST_UPLOAD_MBPS", 20.0)
 NOTIFY_SPEEDTEST_LATENCY_MS = env_float("NOTIFY_SPEEDTEST_LATENCY_MS", 80.0)
@@ -788,15 +799,38 @@ def bark_post(title: str, body: str) -> tuple[bool, str]:
     if not bark_enabled():
         return False, "Bark 未启用"
     webhook_url = BARK_WEBHOOK_URL
-    if BARK_WEBHOOK_TOKEN and "{token}" in webhook_url:
+    parsed = urlparse(webhook_url)
+    is_bark_api_v2 = parsed.path.rstrip("/") in {"", "/push"}
+
+    if is_bark_api_v2 and BARK_WEBHOOK_TOKEN:
+        push_path = "/push"
+        if parsed.path.rstrip("/") == "/push":
+            push_path = parsed.path or "/push"
+        webhook_url = urlunparse(parsed._replace(path=push_path, params="", query="", fragment=""))
+        payload = {
+            "title": f"{BARK_SOURCE_NAME} - {title}".strip(),
+            "body": body.strip(),
+            "device_key": BARK_WEBHOOK_TOKEN,
+        }
+    elif BARK_WEBHOOK_TOKEN and "{token}" in webhook_url:
         webhook_url = webhook_url.replace("{token}", BARK_WEBHOOK_TOKEN)
+        payload = {
+            "data": f"{BARK_SOURCE_NAME} - {title}\n{body}".strip(),
+        }
     elif BARK_WEBHOOK_TOKEN and webhook_url.rstrip("/").endswith("/icloud"):
         webhook_url = f"{webhook_url.rstrip('/')}/{BARK_WEBHOOK_TOKEN}"
+        payload = {
+            "data": f"{BARK_SOURCE_NAME} - {title}\n{body}".strip(),
+        }
     elif BARK_WEBHOOK_TOKEN and webhook_url.rstrip("/").endswith("/api/webhook"):
         webhook_url = f"{webhook_url.rstrip('/')}/{BARK_WEBHOOK_TOKEN}"
-    payload = {
-        "data": f"{BARK_SOURCE_NAME} - {title}\n{body}".strip(),
-    }
+        payload = {
+            "data": f"{BARK_SOURCE_NAME} - {title}\n{body}".strip(),
+        }
+    else:
+        payload = {
+            "data": f"{BARK_SOURCE_NAME} - {title}\n{body}".strip(),
+        }
     cmd = [
         "curl",
         "-sS",
@@ -808,7 +842,13 @@ def bark_post(title: str, body: str) -> tuple[bool, str]:
         "--data",
         json.dumps(payload, ensure_ascii=False),
     ]
-    if BARK_WEBHOOK_TOKEN and "{token}" not in BARK_WEBHOOK_URL and not BARK_WEBHOOK_URL.rstrip("/").endswith("/icloud") and not BARK_WEBHOOK_URL.rstrip("/").endswith("/api/webhook"):
+    if (
+        BARK_WEBHOOK_TOKEN
+        and not is_bark_api_v2
+        and "{token}" not in BARK_WEBHOOK_URL
+        and not BARK_WEBHOOK_URL.rstrip("/").endswith("/icloud")
+        and not BARK_WEBHOOK_URL.rstrip("/").endswith("/api/webhook")
+    ):
         cmd.extend(["-H", f"x-icloudpd-token: {BARK_WEBHOOK_TOKEN}"])
     try:
         completed = subprocess.run(
@@ -1354,29 +1394,105 @@ def evaluate_domestic_notifications() -> None:
             )
 
 
-def evaluate_international_recovery_notifications() -> None:
-    international_targets = [target for target in HEARTBEAT_TARGETS if classify_heartbeat_target(target) == "international"]
-    for target in international_targets:
-        rows = recent_rows("heartbeat", NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES, target)
-        success_rows = [row for row in rows if row.get("success") and row.get("latency_ms") is not None]
-        latencies = [float(row["latency_ms"]) for row in success_rows]
-        success_rate = round((len(success_rows) / len(rows)) * 100, 2) if rows else 0.0
-        p95_latency = percentile(latencies, 0.95)
-        active = bool(
-            rows
-            and success_rate >= NOTIFY_INTERNATIONAL_SUCCESS_RATE
-            and p95_latency is not None
-            and p95_latency <= NOTIFY_INTERNATIONAL_LATENCY_MS
+def international_target_status(target: str, lookback_minutes: int) -> dict[str, Any] | None:
+    rows = recent_rows("heartbeat", lookback_minutes, target)
+    if not rows:
+        return None
+    success_rows = [row for row in rows if row.get("success") and row.get("latency_ms") is not None]
+    latencies = [float(row["latency_ms"]) for row in success_rows]
+    success_rate = round((len(success_rows) / len(rows)) * 100, 2) if rows else 0.0
+    p95_latency = percentile(latencies, 0.95)
+    latest = rows[-1]
+    streak = consecutive_failures(rows)
+    return {
+        "target": target,
+        "meta": heartbeat_target_meta(target),
+        "rows": rows,
+        "latest": latest,
+        "success_rate": success_rate,
+        "p95_latency_ms": p95_latency,
+        "failure_streak": streak,
+    }
+
+
+def evaluate_international_notifications() -> None:
+    international_targets = [
+        target for target in NOTIFY_INTERNATIONAL_TARGETS
+        if target in HEARTBEAT_TARGETS and classify_heartbeat_target(target) == "international"
+    ]
+    anomaly_statuses = [
+        international_target_status(target, NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES)
+        for target in international_targets
+    ]
+    anomaly_statuses = [item for item in anomaly_statuses if item]
+    if not anomaly_statuses:
+        return
+
+    bad_targets = []
+    for status in anomaly_statuses:
+        success_rate = status["success_rate"]
+        p95_latency = status["p95_latency_ms"]
+        failure_streak = status["failure_streak"]
+        is_bad = bool(
+            success_rate < NOTIFY_INTERNATIONAL_ANOMALY_SUCCESS_RATE
+            or failure_streak >= NOTIFY_INTERNATIONAL_FAILURE_STREAK
+            or (p95_latency is not None and p95_latency > NOTIFY_INTERNATIONAL_ANOMALY_LATENCY_MS)
         )
-        previous, current = transition_flag_state(f"international_good:{target}", active)
-        if current and not previous:
-            meta = heartbeat_target_meta(target)
-            send_bark_notification(
-                f"international_good:{target}",
-                "国际链路转好",
-                f"{target} {meta['label']} 最近 {NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES} 分钟成功率 {success_rate:.2f}%，p95 {p95_latency:.2f} ms。",
-                dedup_minutes=120,
+        if is_bad:
+            bad_targets.append(status)
+
+    min_bad_targets = min(NOTIFY_INTERNATIONAL_BAD_TARGETS, len(international_targets))
+    anomaly_active = len(bad_targets) >= max(1, min_bad_targets)
+    previous_anomaly, current_anomaly = transition_flag_state("international_outage", anomaly_active)
+    if current_anomaly and not previous_anomaly:
+        parts = []
+        for status in bad_targets:
+            meta = status["meta"]
+            latency_text = (
+                f"p95 {status['p95_latency_ms']:.2f} ms"
+                if status["p95_latency_ms"] is not None else "p95 --"
             )
+            parts.append(
+                f"{status['target']} {meta['label']} 成功率 {status['success_rate']:.2f}%，"
+                f"{latency_text}，连续失败 {status['failure_streak']} 次"
+            )
+        send_bark_notification(
+            "international_outage",
+            "国际链路明显波动",
+            "；".join(parts),
+            dedup_minutes=45,
+        )
+
+    recovery_statuses = [
+        international_target_status(target, NOTIFY_INTERNATIONAL_RECOVERY_MINUTES)
+        for target in international_targets
+    ]
+    recovery_statuses = [item for item in recovery_statuses if item]
+    recovery_active = bool(
+        recovery_statuses
+        and len(recovery_statuses) == len(international_targets)
+        and all(
+            status["failure_streak"] == 0
+            and status["success_rate"] >= NOTIFY_INTERNATIONAL_SUCCESS_RATE
+            and status["p95_latency_ms"] is not None
+            and status["p95_latency_ms"] <= NOTIFY_INTERNATIONAL_LATENCY_MS
+            for status in recovery_statuses
+        )
+    )
+    previous_recovery, current_recovery = transition_flag_state("international_good", recovery_active)
+    if previous_anomaly and not current_anomaly and current_recovery and not previous_recovery:
+        summary = "；".join(
+            [
+                f"{status['target']} {status['meta']['label']} 成功率 {status['success_rate']:.2f}%，p95 {status['p95_latency_ms']:.2f} ms"
+                for status in recovery_statuses
+            ]
+        )
+        send_bark_notification(
+            "international_good",
+            "国际链路恢复稳定",
+            summary,
+            dedup_minutes=120,
+        )
 
 
 def evaluate_speedtest_notifications() -> None:
@@ -1422,15 +1538,30 @@ def evaluate_daily_report_notification() -> None:
     heartbeat = fetch_heartbeat_summary(24)
     internet = fetch_internet_summary(24)
     targets = heartbeat_targets(24)
-    domestic_status = [item for item in targets if item["group"] == "domestic"]
     international_status = [item for item in targets if item["group"] == "international"]
-    domestic_ok = sum(1 for item in domestic_status if item["health"] == "healthy")
     international_ok = sum(1 for item in international_status if item["health"] == "healthy")
     latest = internet.get("latest_success") or {}
+    international_parts = []
+    for item in international_status:
+        label = item.get("label") or item.get("provider") or item["target"]
+        health_text = {
+            "healthy": "正常",
+            "slow": "偏慢",
+            "degraded": "异常",
+        }.get(item.get("health"), "未知")
+        avg_text = f"{item['avg_latency_ms']:.2f} ms" if item.get("avg_latency_ms") is not None else "--"
+        p95_text = f"{item['p95_latency_ms']:.2f} ms" if item.get("p95_latency_ms") is not None else "--"
+        international_parts.append(
+            f"{label} {health_text}，成功率 {item['success_rate']:.2f}%，均值 {avg_text}，p95 {p95_text}"
+        )
+    international_summary = (
+        f"国际健康 {international_ok}/{len(international_status)}；" + "；".join(international_parts)
+        if international_status else "国际目标暂无样本"
+    )
     body = (
         f"24h 连通率 {heartbeat['uptime_ratio']:.2f}%，主目标均值 {heartbeat.get('avg_latency_ms') or '--'} ms；"
         f"测速均值 下载 {round(internet.get('avg_download_mbps') or 0, 2)} Mbps / 上传 {round(internet.get('avg_upload_mbps') or 0, 2)} Mbps / 延迟 {round(internet.get('avg_latency_ms') or 0, 2)} ms；"
-        f"国内健康 {domestic_ok}/{len(domestic_status)}，国际健康 {international_ok}/{len(international_status)}；"
+        f"{international_summary}；"
         f"最近测速节点 {latest.get('server_sponsor') or latest.get('server_name') or '--'}。"
     )
     if send_bark_notification("daily_report", "网络日报", body, dedup_minutes=60):
@@ -1441,8 +1572,7 @@ def evaluate_notifications(trigger: str) -> None:
     if not bark_enabled():
         return
     if trigger in {"heartbeat", "all"}:
-        evaluate_domestic_notifications()
-        evaluate_international_recovery_notifications()
+        evaluate_international_notifications()
     if trigger in {"speedtest", "all"}:
         evaluate_speedtest_notifications()
     evaluate_daily_report_notification()

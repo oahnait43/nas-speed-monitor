@@ -25,6 +25,63 @@ const heartbeatTargetSelect = document.getElementById("heartbeatTargetSelect");
 const targetCompareChart = document.getElementById("targetCompareChart");
 const internetChart = document.getElementById("internetChart");
 const chartTooltip = document.getElementById("chartTooltip");
+const infoModal = document.getElementById("infoModal");
+const infoModalTitle = document.getElementById("infoModalTitle");
+const infoModalBody = document.getElementById("infoModalBody");
+const infoModalClose = document.getElementById("infoModalClose");
+const infoModalBackdrop = document.getElementById("infoModalBackdrop");
+
+const infoCopy = {
+  "heartbeat-lattice": {
+    title: "连通性晶格说明",
+    body: [
+      "这里看的是每一小段时间里，线路是不是通、延迟是不是正常。颜色越稳定，说明这段时间外网越平稳。",
+      "绿色表示基本正常，橙色表示延迟偏高，红色表示这段时间出现失败或断流。点某个格子后，下面的趋势图会跟着聚焦到对应时间。"
+    ]
+  },
+  "target-compare": {
+    title: "链路诊断矩阵说明",
+    body: [
+      "这里是把多个心跳目标放在一起横向对比，目的是帮你判断问题大概出在国内链路、国际链路，还是某一个目标本身。",
+      "每一行代表一个目标。实心点是平均延迟，横线拉到 p95，紫点是 p99。右侧还会显示成功率和相对主目标的偏移，越偏离越值得怀疑。"
+    ]
+  },
+  "heartbeat-trend": {
+    title: "心跳延迟趋势说明",
+    body: [
+      "这里看的是选中目标在一段时间内的延迟变化，适合看波动、毛刺和突然变差的时刻。",
+      "平均值说明平时大概多快，p95 和 p99 用来判断尾部风险。如果平均值正常但 p99 很高，往往说明偶发卡顿比较明显。"
+    ]
+  },
+  "internet-trend": {
+    title: "正式测速趋势说明",
+    body: [
+      "这里看的是定时真测速的结果，不是 ping。它会记录下载、上传、延迟和测速节点，更适合看宽带质量有没有在某些时段掉速。",
+      "如果这里变差而心跳还正常，通常说明是带宽质量下降；如果这里和心跳一起变差，通常说明整条外网链路都不稳定。"
+    ]
+  },
+  "heartbeat-target-table": {
+    title: "心跳目标明细说明",
+    body: [
+      "这张表是各个心跳目标的汇总清单，适合快速查看每个目标最近收到了多少样本、成功率多少、平均延迟大概多少。",
+      "如果某个目标的成功率明显比别的低，或者延迟明显偏高，它就很可能是异常点，或者正好反映了某一段链路的问题。"
+    ]
+  },
+  "heartbeat-event-table": {
+    title: "事件与异常记录说明",
+    body: [
+      "这里会列出系统识别到的明显异常，比如断流、延迟毛刺之类的事件，方便你按时间回看。",
+      "它比较适合回答两个问题：什么时候出的问题，以及问题持续了多久。"
+    ]
+  },
+  "history-table": {
+    title: "测速历史明细说明",
+    body: [
+      "这里是每次正式测速的原始记录，适合查具体某一次测速到底测到了多少下载、上传、延迟，以及用了哪个节点。",
+      "如果上面的趋势图看起来有异常，你可以来这里对照具体那一次的数字。"
+    ]
+  }
+};
 
 function speedtestScheduleSummary() {
   return "正式测速固定时刻 01:30 / 07:30 / 13:30 / 19:30";
@@ -85,6 +142,40 @@ function hideTooltip() {
     return;
   }
   chartTooltip.hidden = true;
+}
+
+function openInfoModal(key) {
+  const info = infoCopy[key];
+  if (!info || !infoModal || !infoModalTitle || !infoModalBody) {
+    return;
+  }
+  infoModalTitle.textContent = info.title;
+  infoModalBody.innerHTML = info.body.map((text) => `<p>${text}</p>`).join("");
+  infoModal.hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeInfoModal() {
+  if (!infoModal) {
+    return;
+  }
+  infoModal.hidden = true;
+  document.body.style.overflow = "";
+}
+
+function bindInfoTriggers() {
+  document.querySelectorAll(".info-trigger[data-info-key]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openInfoModal(button.dataset.infoKey);
+    });
+  });
+  infoModalClose?.addEventListener("click", closeInfoModal);
+  infoModalBackdrop?.addEventListener("click", closeInfoModal);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && infoModal && !infoModal.hidden) {
+      closeInfoModal();
+    }
+  });
 }
 
 function nearestPoint(points, targetMs) {
@@ -215,9 +306,13 @@ function drawTargetCompareChart() {
     }
     return (a.avg_latency_ms ?? Number.MAX_SAFE_INTEGER) - (b.avg_latency_ms ?? Number.MAX_SAFE_INTEGER);
   });
-  const width = 700;
+  const mobile = isMobileViewport();
+  const hostWidth = Math.max(Math.round(targetCompareChart.getBoundingClientRect().width || 0), 0);
+  const width = mobile ? 420 : Math.max(980, hostWidth);
   const rowHeight = 82;
-  const pad = { top: 88, right: 184, bottom: 24, left: 180 };
+  const pad = mobile
+    ? { top: 48, right: 172, bottom: 24, left: 156 }
+    : { top: 48, right: 270, bottom: 24, left: 180 };
   const maxLatency = Math.max(...rows.flatMap((row) => [Number(row.avg_latency_ms || 0), Number(row.p95_latency_ms || 0), Number(row.p99_latency_ms || 0)]), 120);
   const height = pad.top + rows.length * rowHeight + pad.bottom;
   const scaleX = (value) => pad.left + (Number(value || 0) / maxLatency) * (width - pad.left - pad.right);
@@ -301,10 +396,12 @@ function drawTargetCompareChart() {
   }).join("");
 
   targetCompareChart.innerHTML = `
+    <div class="diagnostic-summary">
+      <p class="diagnostic-note">基线目标 ${primary?.target || "--"}；实心点表示平均延迟，横线表示到 p95，紫点表示 p99。</p>
+      <p class="diagnostic-note">右侧展示成功率、延迟分位和相对基线偏移，可结合国内/国际分组判断异常范围。</p>
+      <p class="diagnostic-conclusion">${diagnosis}</p>
+    </div>
     <svg class="chart-svg diagnostic-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
-      <text class="annotation-label top-note" x="${pad.left}" y="16">基线目标 ${primary?.target || "--"}；实心点表示平均延迟，横线表示到 p95，紫点表示 p99。</text>
-      <text class="annotation-label top-note" x="${pad.left}" y="34">右侧展示成功率、延迟分位和相对基线偏移，可结合国内/国际分组判断异常范围。</text>
-      <text class="diagnosis-banner" x="${pad.left}" y="58">${diagnosis}</text>
       ${thresholdBands}
       ${axisTicks}
       ${rowsSvg}
@@ -654,6 +751,8 @@ cleanupBtn.addEventListener("click", async () => {
     cleanupBtn.textContent = "清理旧样本";
   }
 });
+
+bindInfoTriggers();
 
 refresh().catch((error) => {
   statusText.textContent = error.message;
