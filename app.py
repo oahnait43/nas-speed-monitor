@@ -1448,20 +1448,18 @@ def evaluate_international_notifications() -> None:
         parts = []
         for status in bad_targets:
             meta = status["meta"]
-            latest = status["latest"]
             latency_text = (
                 f"p95 {status['p95_latency_ms']:.2f} ms"
                 if status["p95_latency_ms"] is not None else "p95 --"
             )
             parts.append(
                 f"{status['target']} {meta['label']} 成功率 {status['success_rate']:.2f}%，"
-                f"{latency_text}，连续失败 {status['failure_streak']} 次，最近一次 {latest['measured_at']}"
+                f"{latency_text}，连续失败 {status['failure_streak']} 次"
             )
         send_bark_notification(
             "international_outage",
             "国际链路明显波动",
-            f"最近 {NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES} 分钟内有 {len(bad_targets)} 个国际目标同时异常："
-            + "；".join(parts),
+            "；".join(parts),
             dedup_minutes=45,
         )
 
@@ -1492,7 +1490,7 @@ def evaluate_international_notifications() -> None:
         send_bark_notification(
             "international_good",
             "国际链路恢复稳定",
-            f"最近 {NOTIFY_INTERNATIONAL_RECOVERY_MINUTES} 分钟国际目标恢复稳定：{summary}",
+            summary,
             dedup_minutes=120,
         )
 
