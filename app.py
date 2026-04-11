@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import re
@@ -35,11 +37,12 @@ def env_float(name: str, default: float) -> float:
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DB_PATH = DATA_DIR / os.getenv("DB_NAME", "speed_history.db")
+APP_VERSION = "0.2.0"
 TIMEZONE_OFFSET = env_int("TZ_OFFSET_HOURS", 8)
 SCHEDULE_MINUTES = env_int("SCHEDULE_MINUTES", 120)
 SCHEDULE_CLOCK_TIMES = [
     item.strip()
-    for item in os.getenv("SCHEDULE_CLOCK_TIMES", "").split(",")
+    for item in os.getenv("SCHEDULE_CLOCK_TIMES", "05:00,16:00").split(",")
     if item.strip()
 ]
 RUN_ON_START = env_bool("RUN_ON_START", True)
@@ -49,12 +52,12 @@ ENABLE_HEARTBEAT_TEST = env_bool("ENABLE_HEARTBEAT_TEST", True)
 LAN_HOST = os.getenv("LAN_IPERF_HOST", "")
 LAN_PORT = env_int("LAN_IPERF_PORT", 5201)
 LAN_DURATION = env_int("LAN_IPERF_DURATION_SECONDS", 10)
-HEARTBEAT_INTERVAL_SECONDS = env_int("HEARTBEAT_INTERVAL_SECONDS", 60)
+HEARTBEAT_INTERVAL_SECONDS = env_int("HEARTBEAT_INTERVAL_SECONDS", 120)
 HEARTBEAT_TARGET = os.getenv("HEARTBEAT_TARGET", "223.5.5.5").strip() or "223.5.5.5"
 HEARTBEAT_TIMEOUT_SECONDS = env_int("HEARTBEAT_TIMEOUT_SECONDS", 2)
 HEARTBEAT_TARGETS = [
     item.strip()
-    for item in os.getenv("HEARTBEAT_TARGETS", f"{HEARTBEAT_TARGET},119.29.29.29,180.76.76.76,1.1.1.1,8.8.8.8").split(",")
+    for item in os.getenv("HEARTBEAT_TARGETS", f"{HEARTBEAT_TARGET},119.29.29.29,1.1.1.1").split(",")
     if item.strip()
 ]
 INTERNET_SERVER_ID = os.getenv("INTERNET_SPEEDTEST_SERVER_ID", "").strip()
@@ -73,8 +76,8 @@ BARK_WEBHOOK_TOKEN = os.getenv("BARK_WEBHOOK_TOKEN", "").strip()
 BARK_SOURCE_NAME = os.getenv("BARK_SOURCE_NAME", "NAS 外网监测").strip() or "NAS 外网监测"
 BARK_PUSH_TIMEOUT_SECONDS = env_float("BARK_PUSH_TIMEOUT_SECONDS", 8.0)
 BARK_DEDUP_MINUTES = env_int("BARK_DEDUP_MINUTES", 30)
-BARK_DAILY_REPORT_HOUR = env_int("BARK_DAILY_REPORT_HOUR", 9)
-BARK_DAILY_REPORT_MINUTE = env_int("BARK_DAILY_REPORT_MINUTE", 0)
+BARK_DAILY_REPORT_HOUR = env_int("BARK_DAILY_REPORT_HOUR", 8)
+BARK_DAILY_REPORT_MINUTE = env_int("BARK_DAILY_REPORT_MINUTE", 30)
 NOTIFY_DOMESTIC_FAILURE_STREAK = env_int("NOTIFY_DOMESTIC_FAILURE_STREAK", 2)
 NOTIFY_DOMESTIC_LOOKBACK_MINUTES = env_int("NOTIFY_DOMESTIC_LOOKBACK_MINUTES", 15)
 NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES = env_int("NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES", 30)
@@ -204,6 +207,12 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE INDEX IF NOT EXISTS idx_measurements_kind_target_time
+            ON measurements(kind, target, measured_at DESC)
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS app_state (
                 key TEXT PRIMARY KEY,
                 value TEXT,
@@ -322,6 +331,13 @@ def next_scheduled_run(after: datetime | None = None) -> datetime:
     return min(candidates) if candidates else base + timedelta(days=1)
 
 
+def speedtest_schedule_summary() -> str:
+    clocks = normalized_schedule_clocks()
+    if clocks:
+        return "正式测速固定时刻 " + " / ".join(f"{hour:02d}:{minute:02d}" for hour, minute in clocks)
+    return f"正式测速每 {max(SCHEDULE_MINUTES, 1)} 分钟"
+
+
 def prune_old_data() -> None:
     if RETENTION_DAYS <= 0:
         return
@@ -394,13 +410,18 @@ def speedtest_command(*args: str) -> list[str]:
 
 
 def run_speedtest_cli(*args: str, timeout: int = 180) -> dict[str, Any]:
-    completed = subprocess.run(
-        speedtest_command(*args),
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+    try:
+        completed = subprocess.run(
+            speedtest_command(*args),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.CalledProcessError as exc:
+        output = (exc.stdout or exc.stderr or "").strip()
+        detail = output.splitlines()[0] if output else str(exc)
+        raise RuntimeError(detail) from exc
     return json.loads(completed.stdout)
 
 
@@ -1076,14 +1097,18 @@ def detect_heartbeat_events(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for row in rows:
         if row.get("success"):
             if len(failure_streak) >= 2:
+                start_at = failure_streak[0]["measured_at"]
+                end_at = failure_streak[-1]["measured_at"]
                 events.append(
                     {
                         "type": "outage",
                         "severity": "high",
                         "target": row.get("target"),
-                        "start": failure_streak[0]["measured_at"],
-                        "end": failure_streak[-1]["measured_at"],
-                        "label": f"连续失败 {len(failure_streak)} 次",
+                        "start": start_at,
+                        "end": end_at,
+                        "label": f"{parse_iso(start_at).strftime('%H:%M')} 起连续失败 {len(failure_streak)} 次",
+                        "time_label": f"{parse_iso(start_at).strftime('%H:%M')}-{parse_iso(end_at).strftime('%H:%M')}",
+                        "duration_minutes": round((parse_iso(end_at) - parse_iso(start_at)).total_seconds() / 60, 1),
                     }
                 )
             failure_streak = []
@@ -1096,21 +1121,27 @@ def detect_heartbeat_events(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         "target": row.get("target"),
                         "start": row["measured_at"],
                         "end": row["measured_at"],
-                        "label": f"延迟毛刺 {float(latency):.1f} ms",
+                        "label": f"{parse_iso(row['measured_at']).strftime('%H:%M')} 延迟毛刺 {float(latency):.1f} ms",
+                        "time_label": parse_iso(row["measured_at"]).strftime("%H:%M"),
+                        "duration_minutes": 0,
                         "value": round(float(latency), 2),
                     }
                 )
         else:
             failure_streak.append(row)
     if len(failure_streak) >= 2:
+        start_at = failure_streak[0]["measured_at"]
+        end_at = failure_streak[-1]["measured_at"]
         events.append(
             {
                 "type": "outage",
                 "severity": "high",
                 "target": failure_streak[-1].get("target"),
-                "start": failure_streak[0]["measured_at"],
-                "end": failure_streak[-1]["measured_at"],
-                "label": f"连续失败 {len(failure_streak)} 次",
+                "start": start_at,
+                "end": end_at,
+                "label": f"{parse_iso(start_at).strftime('%H:%M')} 起连续失败 {len(failure_streak)} 次",
+                "time_label": f"{parse_iso(start_at).strftime('%H:%M')}-{parse_iso(end_at).strftime('%H:%M')}",
+                "duration_minutes": round((parse_iso(end_at) - parse_iso(start_at)).total_seconds() / 60, 1),
             }
         )
     return events[-24:]
@@ -1177,28 +1208,90 @@ def heartbeat_target_meta(target: str) -> dict[str, str]:
 
 
 def heartbeat_targets(hours: int = 24) -> list[dict[str, Any]]:
-    cutoff = (local_now() - timedelta(hours=hours)).isoformat() if hours > 0 else None
+    targets = HEARTBEAT_TARGETS or [HEARTBEAT_TARGET]
+    if not targets:
+        return []
+
+    target_placeholders = ", ".join("?" for _ in targets)
+    where = f"kind = ? AND target IN ({target_placeholders})"
+    params: list[Any] = ["heartbeat", *targets]
+    if hours > 0:
+        where += " AND measured_at >= ?"
+        params.append((local_now() - timedelta(hours=hours)).isoformat())
+
+    with closing(db_connect()) as conn:
+        aggregate_rows = conn.execute(
+            f"""
+            SELECT
+                target,
+                COUNT(*) AS samples,
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count,
+                AVG(CASE WHEN success = 1 AND latency_ms IS NOT NULL THEN latency_ms END) AS avg_latency_ms
+            FROM measurements
+            WHERE {where}
+            GROUP BY target
+            """,
+            params,
+        ).fetchall()
+
+        latest_rows = conn.execute(
+            f"""
+            SELECT m.target, m.measured_at AS latest_measured_at, m.success AS latest_success
+            FROM measurements m
+            JOIN (
+                SELECT target, MAX(measured_at) AS latest_measured_at
+                FROM measurements
+                WHERE {where}
+                GROUP BY target
+            ) latest
+                ON m.target = latest.target
+                AND m.measured_at = latest.latest_measured_at
+            WHERE m.kind = ?
+            """,
+            [*params, "heartbeat"],
+        ).fetchall()
+
+        latency_rows = conn.execute(
+            f"""
+            SELECT target, latency_ms
+            FROM measurements
+            WHERE {where}
+                AND success = 1
+                AND latency_ms IS NOT NULL
+            ORDER BY target ASC, latency_ms ASC
+            """,
+            params,
+        ).fetchall()
+
+    stats_by_target = {row["target"]: dict(row) for row in aggregate_rows}
+    latest_by_target = {row["target"]: dict(row) for row in latest_rows}
+    latencies_by_target: dict[str, list[float]] = {target: [] for target in targets}
+    for row in latency_rows:
+        latencies_by_target.setdefault(row["target"], []).append(float(row["latency_ms"]))
+
     output: list[dict[str, Any]] = []
-    primary_target = HEARTBEAT_TARGETS[0] if HEARTBEAT_TARGETS else HEARTBEAT_TARGET
+    primary_target = targets[0]
     baseline_avg = None
 
-    for target in HEARTBEAT_TARGETS:
-        rows = fetch_history("heartbeat", hours, target)
-        samples = len(rows)
-        success_rows = [row for row in rows if row.get("success")]
-        latencies = [float(row["latency_ms"]) for row in success_rows if row.get("latency_ms") is not None]
-        latest = rows[-1] if rows else None
+    for target in targets:
+        stats = stats_by_target.get(target, {})
+        latest = latest_by_target.get(target)
+        latencies = latencies_by_target.get(target, [])
+        samples = int(stats.get("samples") or 0)
+        success_count = int(stats.get("success_count") or 0)
+        avg_latency = stats.get("avg_latency_ms")
+        latest_success = latest.get("latest_success") if latest else None
         summary = {
             "target": target,
             **heartbeat_target_meta(target),
             "samples": samples,
-            "latest_measured_at": latest["measured_at"] if latest else None,
-            "latest_success": latest.get("success") if latest else None,
-            "avg_latency_ms": round(sum(latencies) / len(latencies), 2) if latencies else None,
+            "latest_measured_at": latest["latest_measured_at"] if latest else None,
+            "latest_success": bool(latest_success) if latest_success is not None else None,
+            "avg_latency_ms": round(float(avg_latency), 2) if avg_latency is not None else None,
             "p95_latency_ms": percentile(latencies, 0.95),
             "p99_latency_ms": percentile(latencies, 0.99),
-            "success_rate": round((len(success_rows) / samples) * 100, 2) if samples else 0.0,
-            "failure_count": samples - len(success_rows),
+            "success_rate": round((success_count / samples) * 100, 2) if samples else 0.0,
+            "failure_count": samples - success_count,
         }
         if target == primary_target:
             baseline_avg = summary["avg_latency_ms"]
@@ -1325,6 +1418,92 @@ def consecutive_failures(rows: list[dict[str, Any]]) -> int:
     return streak
 
 
+def heartbeat_window_status(minutes: int) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    for target in HEARTBEAT_TARGETS:
+        rows = recent_rows("heartbeat", minutes, target)
+        samples = len(rows)
+        success_rows = [row for row in rows if row.get("success")]
+        latencies = [float(row["latency_ms"]) for row in success_rows if row.get("latency_ms") is not None]
+        success_rate = round((len(success_rows) / samples) * 100, 2) if samples else 0.0
+        meta = heartbeat_target_meta(target)
+        degraded = bool(
+            samples
+            and (
+                success_rate < 95
+                or consecutive_failures(rows) >= NOTIFY_DOMESTIC_FAILURE_STREAK
+            )
+        )
+        output.append(
+            {
+                "target": target,
+                **meta,
+                "samples": samples,
+                "success_rate": success_rate,
+                "failure_count": samples - len(success_rows),
+                "consecutive_failures": consecutive_failures(rows),
+                "avg_latency_ms": round(sum(latencies) / len(latencies), 2) if latencies else None,
+                "p95_latency_ms": percentile(latencies, 0.95),
+                "degraded": degraded,
+            }
+        )
+    return output
+
+
+def format_target_status(items: list[dict[str, Any]]) -> str:
+    parts = []
+    for item in items:
+        latency = item["avg_latency_ms"]
+        latency_text = f"，均值 {latency:.1f} ms" if latency is not None else ""
+        parts.append(f"{item['target']} 成功率 {item['success_rate']:.1f}%{latency_text}")
+    return "；".join(parts)
+
+
+def evaluate_heartbeat_notifications() -> None:
+    items = heartbeat_window_status(NOTIFY_DOMESTIC_LOOKBACK_MINUTES)
+    domestic = [item for item in items if item["group"] == "domestic"]
+    international = [item for item in items if item["group"] == "international"]
+    domestic_bad = [item for item in domestic if item["degraded"]]
+    international_bad = [item for item in international if item["degraded"]]
+    domestic_active = len(domestic_bad) >= 2
+    international_active = bool(international_bad)
+    public_active = domestic_active and international_active
+
+    previous_public, current_public = transition_flag_state("public_outage", public_active)
+    previous_domestic, current_domestic = transition_flag_state("domestic_group_outage", domestic_active)
+    if current_public and not previous_public:
+        send_bark_notification(
+            "public_outage",
+            "公网出口丢包",
+            f"国内和国际目标同时异常，更像路由器 WAN 侧、光猫或运营商出口波动。{format_target_status(domestic_bad + international_bad)}。",
+            dedup_minutes=30,
+        )
+    elif previous_public and not current_public:
+        send_bark_notification(
+            "public_outage_recovery",
+            "公网出口恢复",
+            f"最近 {NOTIFY_DOMESTIC_LOOKBACK_MINUTES} 分钟国内/国际目标不再同时异常。{format_target_status(items)}。",
+            dedup_minutes=30,
+        )
+
+    if current_domestic and not previous_domestic and not public_active:
+        send_bark_notification(
+            "domestic_group_outage",
+            "国内出口丢包",
+            f"多个国内基线目标同时异常，优先检查电信宽带、光猫或路由器 WAN 侧。{format_target_status(domestic_bad)}。",
+            dedup_minutes=30,
+        )
+    elif previous_domestic and not current_domestic:
+        send_bark_notification(
+            "domestic_group_outage_recovery",
+            "国内出口恢复",
+            f"最近 {NOTIFY_DOMESTIC_LOOKBACK_MINUTES} 分钟国内基线恢复。{format_target_status(domestic)}。",
+            dedup_minutes=30,
+        )
+
+    evaluate_international_recovery_notifications()
+
+
 def evaluate_domestic_notifications() -> None:
     domestic_targets = [target for target in HEARTBEAT_TARGETS if classify_heartbeat_target(target) == "domestic"]
     for target in domestic_targets:
@@ -1354,29 +1533,30 @@ def evaluate_domestic_notifications() -> None:
             )
 
 
-def evaluate_international_recovery_notifications() -> None:
-    international_targets = [target for target in HEARTBEAT_TARGETS if classify_heartbeat_target(target) == "international"]
-    for target in international_targets:
-        rows = recent_rows("heartbeat", NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES, target)
-        success_rows = [row for row in rows if row.get("success") and row.get("latency_ms") is not None]
-        latencies = [float(row["latency_ms"]) for row in success_rows]
-        success_rate = round((len(success_rows) / len(rows)) * 100, 2) if rows else 0.0
-        p95_latency = percentile(latencies, 0.95)
-        active = bool(
-            rows
-            and success_rate >= NOTIFY_INTERNATIONAL_SUCCESS_RATE
-            and p95_latency is not None
-            and p95_latency <= NOTIFY_INTERNATIONAL_LATENCY_MS
+def evaluate_international_recovery_notifications(items: list[dict[str, Any]] | None = None) -> None:
+    if items is None:
+        items = [
+            item
+            for item in heartbeat_window_status(NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES)
+            if item["group"] == "international"
+        ]
+    good_items = [
+        item
+        for item in items
+        if item["samples"]
+        and item["success_rate"] >= NOTIFY_INTERNATIONAL_SUCCESS_RATE
+        and item["p95_latency_ms"] is not None
+        and item["p95_latency_ms"] <= NOTIFY_INTERNATIONAL_LATENCY_MS
+    ]
+    active = bool(items) and len(good_items) == len(items)
+    previous, current = transition_flag_state("international_group_good", active)
+    if current and not previous:
+        send_bark_notification(
+            "international_group_good",
+            "国际链路转好",
+            f"国际目标最近 {NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES} 分钟全部达标。{format_target_status(good_items)}。",
+            dedup_minutes=120,
         )
-        previous, current = transition_flag_state(f"international_good:{target}", active)
-        if current and not previous:
-            meta = heartbeat_target_meta(target)
-            send_bark_notification(
-                f"international_good:{target}",
-                "国际链路转好",
-                f"{target} {meta['label']} 最近 {NOTIFY_INTERNATIONAL_LOOKBACK_MINUTES} 分钟成功率 {success_rate:.2f}%，p95 {p95_latency:.2f} ms。",
-                dedup_minutes=120,
-            )
 
 
 def evaluate_speedtest_notifications() -> None:
@@ -1441,8 +1621,7 @@ def evaluate_notifications(trigger: str) -> None:
     if not bark_enabled():
         return
     if trigger in {"heartbeat", "all"}:
-        evaluate_domestic_notifications()
-        evaluate_international_recovery_notifications()
+        evaluate_heartbeat_notifications()
     if trigger in {"speedtest", "all"}:
         evaluate_speedtest_notifications()
     evaluate_daily_report_notification()
@@ -1452,6 +1631,8 @@ def evaluate_notifications(trigger: str) -> None:
 def index() -> str:
     return render_template(
         "index.html",
+        app_version=APP_VERSION,
+        schedule_summary=speedtest_schedule_summary(),
         schedule_minutes=SCHEDULE_MINUTES,
         latest=latest_rows(),
         lan_host=LAN_HOST,

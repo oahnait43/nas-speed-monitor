@@ -4,6 +4,9 @@ const state = {
   summary: null,
   focusTimeMs: null,
   heartbeatTargets: [],
+  loadSeq: 0,
+  loadErrors: [],
+  isLoading: false,
   heartbeat: {
     hours: 6,
     bucket: "5m",
@@ -27,7 +30,54 @@ const internetChart = document.getElementById("internetChart");
 const chartTooltip = document.getElementById("chartTooltip");
 
 function speedtestScheduleSummary() {
-  return "正式测速固定时刻 01:30 / 07:30 / 13:30 / 19:30";
+  return document.body.dataset.speedtestSchedule || "正式测速固定时刻 05:00 / 16:00";
+}
+
+function loadingHtml(label) {
+  return `<p class="empty-state loading-state">${label}加载中...</p>`;
+}
+
+function errorHtml(error) {
+  return `<p class="empty-state error-state">${error}</p>`;
+}
+
+function setHeartbeatBucket(bucket) {
+  state.heartbeat.bucket = bucket;
+  document.querySelectorAll(".range-btn[data-heartbeat-bucket]").forEach((item) => {
+    item.classList.toggle("active", item.dataset.heartbeatBucket === bucket);
+  });
+}
+
+function coarsenBucketForLongRange() {
+  if (state.heartbeat.hours >= 168 && state.heartbeat.bucket !== "1h") {
+    setHeartbeatBucket("1h");
+  }
+}
+
+function statusSummary() {
+  const syncStatus = state.loadErrors.length ? `；部分数据暂未同步：${state.loadErrors.join("、")}` : "";
+  const loadingPrefix = state.isLoading ? "正在同步监控数据；" : "";
+  return `${loadingPrefix}心跳 ${state.heartbeat.target} · ${state.heartbeat.bucket} · 最近 ${state.heartbeat.hours} 小时；${speedtestScheduleSummary()}；测速展示 ${state.hours === 0 ? "全部历史" : `最近 ${state.hours} 小时`}${syncStatus}`;
+}
+
+function renderStatus() {
+  statusText.textContent = statusSummary();
+}
+
+function renderLoadingStates() {
+  if (!state.heartbeat.dashboard) {
+    heartbeatLattice.innerHTML = loadingHtml("连通性晶格");
+    heartbeatSparkline.innerHTML = loadingHtml("心跳趋势");
+    heartbeatEventTableBody.innerHTML = `<tr><td colspan="4" class="empty-state loading-state">事件记录加载中...</td></tr>`;
+  }
+  if (!state.heartbeatTargets.length) {
+    targetCompareChart.innerHTML = loadingHtml("链路诊断矩阵");
+    heartbeatTargetTableBody.innerHTML = `<tr><td colspan="5" class="empty-state loading-state">目标明细加载中...</td></tr>`;
+  }
+  if (!state.history.length && !state.summary) {
+    internetChart.innerHTML = loadingHtml("正式测速趋势");
+    historyTableBody.innerHTML = `<tr><td colspan="6" class="empty-state loading-state">测速历史加载中...</td></tr>`;
+  }
 }
 
 function isMobileViewport() {
@@ -54,6 +104,19 @@ function formatTime(value) {
     return value || "--";
   }
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+}
+
+function formatShortTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value || "--";
+  }
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function eventDisplayLabel(event) {
+  const timeLabel = event.time_label || formatShortTime(event.start);
+  return event.type === "outage" ? `${timeLabel} 断流` : `${timeLabel} 毛刺`;
 }
 
 function chipsHtml(anomalies = []) {
@@ -151,12 +214,67 @@ function heartbeatCellTone(point) {
   return "up";
 }
 
+function renderLatticeCell(point, timeLabel = "") {
+  if (!point) {
+    return `<span class="heartbeat-cell empty" title="${timeLabel || "无数据"}"></span>`;
+  }
+  const pointMs = new Date(point.bucket_start).getTime();
+  const selected = state.focusTimeMs !== null && Math.abs(pointMs - state.focusTimeMs) <= point.bucket_minutes * 60 * 1000;
+  return `
+    <button
+      class="heartbeat-cell ${heartbeatCellTone(point)} ${selected ? "selected" : ""}"
+      type="button"
+      data-tooltip="${formatTime(point.bucket_start)}<br>在线率 ${pct(point.uptime_ratio)}<br>平均 ${fmt(point.avg_latency_ms, " ms")}<br>p95 ${fmt(point.p95_latency_ms, " ms")}"
+      title="${formatTime(point.bucket_start)} | 在线率 ${pct(point.uptime_ratio)} | p95 ${fmt(point.p95_latency_ms, " ms")}"
+      data-focus-time="${pointMs}"
+      aria-label="${formatTime(point.bucket_start)}"></button>
+  `;
+}
+
+function formatLatticeDayLabel(dayText, shortMode) {
+  if (!shortMode) {
+    return dayText;
+  }
+  const date = new Date(`${dayText}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return dayText;
+  }
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function latticeLayout(dayCount, bucketMinutes) {
+  const mobile = isMobileViewport();
+  const gap = mobile ? 6 : 8;
+  let visibleDays = dayCount;
+  if (state.heartbeat.hours >= 168) {
+    visibleDays = mobile ? Math.min(dayCount, 3) : dayCount;
+  } else if (state.heartbeat.hours >= 24) {
+    visibleDays = mobile ? Math.min(dayCount, 2) : dayCount;
+  } else {
+    visibleDays = 1;
+  }
+  const containerWidth = heartbeatLattice?.clientWidth || (mobile ? 360 : 1200);
+  const rawWidth = Math.floor((containerWidth - gap * Math.max(visibleDays - 1, 0)) / Math.max(visibleDays, 1));
+  const minWidth = bucketMinutes >= 60 ? (mobile ? 96 : 110) : (mobile ? 136 : 156);
+  const maxWidth = state.heartbeat.hours >= 168
+    ? (mobile ? 168 : 188)
+    : (state.heartbeat.hours >= 24 ? (mobile ? 220 : 280) : (mobile ? 260 : 340));
+  return {
+    dayWidth: Math.max(minWidth, Math.min(maxWidth, rawWidth)),
+    gap,
+    shortLabel: dayCount >= 4 || state.heartbeat.hours >= 168,
+  };
+}
+
 function renderHeartbeatLattice() {
   const series = state.heartbeat.dashboard?.series || [];
   if (!series.length) {
     heartbeatLattice.innerHTML = `<p class="empty-state">暂无连通性数据</p>`;
     return;
   }
+  const bucketMinutes = state.heartbeat.dashboard?.bucket_minutes || 5;
+  const slotsPerHour = 60 / bucketMinutes;
+  const useHourlyColumns = Number.isInteger(slotsPerHour) && slotsPerHour <= 12;
   const groups = [];
   let currentDay = null;
   let currentItems = [];
@@ -174,23 +292,37 @@ function renderHeartbeatLattice() {
   if (currentDay) {
     groups.push({ day: currentDay, items: currentItems });
   }
+  const layout = latticeLayout(groups.length, bucketMinutes);
+  heartbeatLattice.style.setProperty("--lattice-day-width", `${layout.dayWidth}px`);
+  heartbeatLattice.style.setProperty("--lattice-gap", `${layout.gap}px`);
   heartbeatLattice.innerHTML = groups.map((group) => `
     <section class="lattice-day">
-      <div class="lattice-day-label">${group.day}</div>
-      <div class="lattice-day-grid">
-        ${group.items.map((point) => {
-          const pointMs = new Date(point.bucket_start).getTime();
-          const selected = state.focusTimeMs !== null && Math.abs(pointMs - state.focusTimeMs) <= point.bucket_minutes * 60 * 1000;
-          return `
-            <button
-              class="heartbeat-cell ${heartbeatCellTone(point)} ${selected ? "selected" : ""}"
-              type="button"
-              data-tooltip="${formatTime(point.bucket_start)}<br>在线率 ${pct(point.uptime_ratio)}<br>平均 ${fmt(point.avg_latency_ms, " ms")}<br>p95 ${fmt(point.p95_latency_ms, " ms")}"
-              title="${formatTime(point.bucket_start)} | 在线率 ${pct(point.uptime_ratio)} | p95 ${fmt(point.p95_latency_ms, " ms")}"
-              data-focus-time="${pointMs}"
-              aria-label="${formatTime(point.bucket_start)}"></button>
-          `;
-        }).join("")}
+      <div class="lattice-day-label" title="${group.day}">${formatLatticeDayLabel(group.day, layout.shortLabel)}</div>
+      ${useHourlyColumns ? `
+        <div class="lattice-time-axis">
+          ${Array.from({ length: 24 }, (_, hour) => `<span>${String(hour).padStart(2, "0")}</span>`).join("")}
+        </div>
+      ` : ""}
+      <div class="lattice-day-grid" style="--lattice-rows: ${useHourlyColumns ? slotsPerHour : 1}">
+        ${useHourlyColumns
+          ? (() => {
+              const bySlot = new Map(group.items.map((point) => {
+                const date = new Date(point.bucket_start);
+                const hour = date.getHours();
+                const minute = Math.floor(date.getMinutes() / bucketMinutes) * bucketMinutes;
+                return [`${hour}:${minute}`, point];
+              }));
+              return Array.from({ length: 24 }, (_, hour) => `
+                <div class="lattice-hour-column">
+                  ${Array.from({ length: slotsPerHour }, (_, slot) => {
+                    const minute = slot * bucketMinutes;
+                    const label = `${group.day} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+                    return renderLatticeCell(bySlot.get(`${hour}:${minute}`), label);
+                  }).join("")}
+                </div>
+              `).join("");
+            })()
+          : group.items.map((point) => renderLatticeCell(point)).join("")}
       </div>
     </section>
   `).join("");
@@ -360,10 +492,25 @@ function drawHeartbeatChart() {
   const p95Line = line(points.filter((point) => point.p95 !== null).map((point) => ({ x: point.x, y: point.p95 })), "series-line p-line p95-line");
   const p99Line = line(points.filter((point) => point.p99 !== null).map((point) => ({ x: point.x, y: point.p99 })), "series-line p-line p99-line");
   const dots = points.map((point) => `<circle class="series-dot dot-latency" data-tooltip="${dashboard.target}<br>${formatTime(point.bucketStart)}<br>平均 ${fmt(point.y, " ms")}<br>p95 ${fmt(point.p95, " ms")}<br>p99 ${fmt(point.p99, " ms")}" cx="${toX(point.x).toFixed(2)}" cy="${toY(point.y).toFixed(2)}" r="2.4"></circle>`).join("");
-  const events = (dashboard.events || []).slice(-10).map((event, index) => {
-    const x = toX(new Date(event.start).getTime()).toFixed(2);
-    const labelY = pad.top + 14 + (index % 3) * 14;
-    return `<line class="event-line ${event.type}" x1="${x}" y1="${pad.top}" x2="${x}" y2="${height - pad.bottom}"></line><text class="event-label" x="${Number(x) + 4}" y="${labelY}">${event.type === "outage" ? "断流" : "毛刺"}</text>`;
+  let lastLabelX = Number.NEGATIVE_INFINITY;
+  const minLabelGap = mobile ? 118 : 170;
+  const events = (dashboard.events || []).slice(-18).map((event, index) => {
+    const startMs = new Date(event.start).getTime();
+    const endMs = new Date(event.end || event.start).getTime();
+    const x = toX(startMs);
+    const x2 = Math.max(toX(endMs), x + 3);
+    const canLabel = event.type === "outage" && x - lastLabelX >= minLabelGap;
+    const labelY = pad.top + 14 + (index % 2) * 16;
+    const displayLabel = event.type === "outage" ? `${formatShortTime(event.start)} 断流开始` : eventDisplayLabel(event);
+    if (canLabel) {
+      lastLabelX = x;
+    }
+    const tooltip = `${displayLabel}<br>${event.label || ""}<br>${formatTime(event.start)}${event.end && event.end !== event.start ? ` 至 ${formatTime(event.end)}` : ""}`;
+    const band = event.type === "outage"
+      ? `<rect class="event-band outage" data-tooltip="${tooltip}" x="${x.toFixed(2)}" y="${pad.top}" width="${Math.max(x2 - x, 4).toFixed(2)}" height="${height - pad.top - pad.bottom}"></rect>`
+      : "";
+    const label = canLabel ? `<text class="event-label" x="${Math.min(x + 4, width - pad.right - 78).toFixed(2)}" y="${labelY}">${displayLabel}</text>` : "";
+    return `${band}<line class="event-line ${event.type}" data-tooltip="${tooltip}" x1="${x.toFixed(2)}" y1="${pad.top}" x2="${x.toFixed(2)}" y2="${height - pad.bottom}"></line>${label}`;
   }).join("");
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
     const value = maxY - (maxY - minY) * ratio;
@@ -416,25 +563,59 @@ function drawInternetChart() {
   const upload = buildSeries(rows, "upload_mbps");
   const latency = buildSeries(rows, "latency_ms");
   const allPoints = [...download, ...upload, ...latency];
+  const failureRows = rows.filter((row) => !row.success);
+  const latestSuccessfulRow = summary?.latest_success || rows.slice().reverse().find((row) => row.success);
   if (!allPoints.length) {
-    internetChart.innerHTML = `<p class="empty-state">暂无测速数据</p>`;
+    const latestFailure = failureRows[failureRows.length - 1];
+    internetChart.innerHTML = failureRows.length
+      ? `
+        <div class="speedtest-single">
+          <div>
+            <div class="single-label">当前范围只有失败的正式测速记录</div>
+            <div class="single-time">${formatTime(latestFailure?.measured_at)}</div>
+          </div>
+          <p class="single-note error-state">最近错误：${latestFailure?.error_message || "--"}</p>
+        </div>
+      `
+      : `<p class="empty-state">暂无测速数据</p>`;
+    serverBadge.textContent = latestSuccessfulRow ? `${latestSuccessfulRow.server_sponsor || "--"} / ${latestSuccessfulRow.server_name || "--"} / ${latestSuccessfulRow.external_ip || "--"}` : "暂无最近测速信息";
+    return;
+  }
+  if (Math.max(download.length, upload.length, latency.length) < 2 && !failureRows.length) {
+    const latestRow = (download[0] || upload[0] || latency[0])?.row || summary?.latest_success || {};
+    internetChart.innerHTML = `
+      <div class="speedtest-single">
+        <div>
+          <div class="single-label">当前范围只有 1 次正式测速</div>
+          <div class="single-time">${formatTime(latestRow.measured_at)}</div>
+        </div>
+        <div class="single-metrics">
+          <div><span>下载</span><strong>${fmt(latestRow.download_mbps, " Mbps", 1)}</strong></div>
+          <div><span>上传</span><strong>${fmt(latestRow.upload_mbps, " Mbps", 1)}</strong></div>
+          <div><span>延迟</span><strong>${fmt(latestRow.latency_ms, " ms", 1)}</strong></div>
+        </div>
+      </div>
+    `;
+    serverBadge.textContent = latestRow ? `${latestRow.server_sponsor || "--"} / ${latestRow.server_name || "--"} / ${latestRow.external_ip || "--"}` : "暂无最近测速信息";
     return;
   }
   const mobile = isMobileViewport();
   const width = mobile ? 420 : 1220;
   const panelHeight = mobile ? 96 : 150;
-  const height = panelHeight * 3 + (mobile ? 52 : 70);
+  const height = panelHeight * 3 + (mobile ? 78 : 98);
   const pad = mobile
-    ? { top: 20, right: 12, bottom: 18, left: 36 }
-    : { top: 22, right: 20, bottom: 18, left: 44 };
-  const minX = Math.min(...allPoints.map((point) => point.x));
-  const maxX = Math.max(...allPoints.map((point) => point.x));
+    ? { top: 42, right: 12, bottom: 18, left: 36 }
+    : { top: 48, right: 20, bottom: 18, left: 44 };
+  const rowTimes = rows.map((row) => new Date(row.measured_at).getTime()).filter((value) => !Number.isNaN(value));
+  const xDomain = rowTimes.length ? rowTimes : allPoints.map((point) => point.x);
+  const minX = Math.min(...xDomain);
+  const maxX = Math.max(...xDomain);
   const toX = (x) => (minX === maxX ? width / 2 : pad.left + ((x - minX) / (maxX - minX)) * (width - pad.left - pad.right));
   const buildPanel = (points, colorClass, label, unit, metricKey, thresholdValue, panelIndex) => {
     if (!points.length) {
       return "";
     }
-    const panelTop = panelIndex * panelHeight + (mobile ? 24 : 20);
+    const panelTop = panelIndex * panelHeight + pad.top;
     const panelBottom = panelTop + panelHeight - (mobile ? 18 : 28);
     const maxY = Math.max(...points.map((point) => point.y), thresholdValue || 0, 1);
     const toY = (y) => panelBottom - (y / maxY) * (panelBottom - panelTop);
@@ -451,12 +632,12 @@ function drawInternetChart() {
     const threshold = thresholdValue ? `<line class="threshold-line" x1="${pad.left}" y1="${toY(thresholdValue)}" x2="${width - pad.right}" y2="${toY(thresholdValue)}"></line>` : "";
     const latestPoint = points[points.length - 1];
     return `
-      <text class="panel-label" x="${pad.left}" y="${panelTop - 8}">${label}</text>
+      <text class="panel-label" x="${pad.left}" y="${panelTop - 12}">${label}</text>
       ${yTicks}
       ${threshold}
       <polyline class="series-line ${metricKey}" points="${polyline}"></polyline>
       ${dots}
-      <text class="annotation-label latest-label" x="${toX(latestPoint.x) - 24}" y="${toY(latestPoint.y) - 10}">最新 ${latestPoint.y.toFixed(1)}${unit}</text>
+      <text class="annotation-label latest-label" x="${Math.max(pad.left, Math.min(toX(latestPoint.x) - 24, width - pad.right - 108)).toFixed(2)}" y="${Math.max(panelTop + 14, toY(latestPoint.y) - 10).toFixed(2)}">最新 ${latestPoint.y.toFixed(1)}${unit}</text>
     `;
   };
   const xTickRatios = mobile ? [0, 1] : [0, 0.5, 1];
@@ -468,10 +649,10 @@ function drawInternetChart() {
       : time.toLocaleDateString();
     return `<text class="axis-label" x="${mobile ? x - 12 : x - 30}" y="${height - 8}">${label}</text>`;
   }).join("");
-  const latest = summary?.latest_success;
-  const failureMarkers = rows.filter((row) => !row.success).slice(-6).map((row) => {
+  const latest = latestSuccessfulRow;
+  const failureMarkers = failureRows.slice(-8).map((row) => {
     const x = toX(new Date(row.measured_at).getTime()).toFixed(2);
-    return `<line class="event-line outage" x1="${x}" y1="18" x2="${x}" y2="${height - 28}"></line>`;
+    return `<line class="event-line outage" data-tooltip="${formatTime(row.measured_at)}<br>正式测速失败<br>${row.error_message || ""}" x1="${x}" y1="${pad.top - 18}" x2="${x}" y2="${height - 28}"></line>`;
   }).join("");
   const focusSource = download.length ? download : (upload.length ? upload : latency);
   const focused = state.focusTimeMs !== null ? nearestPoint(focusSource, state.focusTimeMs) : null;
@@ -479,7 +660,7 @@ function drawInternetChart() {
     const prevX = index === 0 ? toX(point.x) : (toX(focusSource[index - 1].x) + toX(point.x)) / 2;
     const nextX = index === focusSource.length - 1 ? toX(point.x) : (toX(point.x) + toX(focusSource[index + 1].x)) / 2;
     const widthBand = Math.max(nextX - prevX, 10);
-    return `<rect class="hover-band" data-focus-time="${point.x}" data-tooltip="${formatTime(point.row.measured_at)}<br>下载 ${fmt(point.row.download_mbps, " Mbps")}<br>上传 ${fmt(point.row.upload_mbps, " Mbps")}<br>延迟 ${fmt(point.row.latency_ms, " ms")}<br>节点 ${point.row.server_sponsor || point.row.server_name || "--"}" x="${prevX}" y="18" width="${widthBand}" height="${height - 40}" fill="transparent"></rect>`;
+    return `<rect class="hover-band" data-focus-time="${point.x}" data-tooltip="${formatTime(point.row.measured_at)}<br>下载 ${fmt(point.row.download_mbps, " Mbps")}<br>上传 ${fmt(point.row.upload_mbps, " Mbps")}<br>延迟 ${fmt(point.row.latency_ms, " ms")}<br>节点 ${point.row.server_sponsor || point.row.server_name || "--"}" x="${prevX}" y="${pad.top - 18}" width="${widthBand}" height="${height - pad.top}" fill="transparent"></rect>`;
   }).join("");
   const topNote = mobile
     ? `下载 ${fmt(latest?.download_mbps, " Mbps")} · 上传 ${fmt(latest?.upload_mbps, " Mbps")} · 延迟 ${fmt(latest?.latency_ms, " ms")}`
@@ -490,11 +671,11 @@ function drawInternetChart() {
       ${xTicks}
       ${failureMarkers}
       ${hoverBands}
-      <text class="annotation-label top-note" x="${pad.left}" y="14">${topNote}</text>
+      <text class="annotation-label top-note" x="${pad.left}" y="18">${topNote}</text>
       ${buildPanel(download, "dot-download", "下载 Mbps", " Mbps", "series-download", summary?.thresholds?.download_alert_mbps || null, 0)}
       ${buildPanel(upload, "dot-upload", "上传 Mbps", " Mbps", "series-upload", summary?.thresholds?.upload_alert_mbps || null, 1)}
       ${buildPanel(latency, "dot-latency", "延迟 ms", " ms", "series-latency", summary?.thresholds?.latency_alert_ms || null, 2)}
-      ${focused ? `<line class="focus-line" x1="${toX(focused.x)}" y1="18" x2="${toX(focused.x)}" y2="${height - 28}"></line>` : ""}
+      ${focused ? `<line class="focus-line" x1="${toX(focused.x)}" y1="${pad.top - 18}" x2="${toX(focused.x)}" y2="${height - 28}"></line>` : ""}
       ${focused ? `<text class="focus-label" x="${toX(focused.x) + 6}" y="${height - 12}">${formatTime(focused.row.measured_at)}</text>` : ""}
     </svg>
     <div class="legend compact-legend">
@@ -526,7 +707,7 @@ function renderHeartbeatTargetTable() {
 function renderHeartbeatEventTable() {
   const rows = state.heartbeat.dashboard?.events || [];
   heartbeatEventTableBody.innerHTML = rows.length
-    ? rows.slice().reverse().map((row) => `<tr><td>${formatTime(row.start)}</td><td>${row.type === "outage" ? "断流" : "毛刺"}</td><td>${row.target || "--"}</td><td>${row.label}</td></tr>`).join("")
+    ? rows.slice().reverse().map((row) => `<tr><td>${row.time_label || formatShortTime(row.start)}</td><td>${row.type === "outage" ? "断流" : "毛刺"}</td><td>${row.target || "--"}</td><td>${row.label}</td></tr>`).join("")
     : `<tr><td colspan="4" class="empty-state">当前时间范围内没有显著事件</td></tr>`;
 }
 
@@ -537,38 +718,103 @@ function renderHistoryTable() {
     : `<tr><td colspan="6" class="empty-state">暂无记录</td></tr>`;
 }
 
-async function loadData() {
+async function fetchJson(label, url, fallback) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      return { ok: false, data: fallback, error: `${label} HTTP ${response.status}` };
+    }
+    return { ok: true, data: await response.json(), error: null };
+  } catch (error) {
+    const message = error.name === "AbortError" ? "超时" : "连接失败";
+    return { ok: false, data: fallback, error: `${label}${message}` };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function showSectionError(section, error) {
+  if (section === "internet-history" && !state.history.length) {
+    historyTableBody.innerHTML = `<tr><td colspan="6" class="empty-state error-state">${error}</td></tr>`;
+  }
+  if (section === "internet-summary" && !state.summary && !state.history.length) {
+    internetChart.innerHTML = errorHtml(error);
+  }
+  if (section === "heartbeat-dashboard" && !state.heartbeat.dashboard) {
+    heartbeatLattice.innerHTML = errorHtml(error);
+    heartbeatSparkline.innerHTML = errorHtml(error);
+    heartbeatEventTableBody.innerHTML = `<tr><td colspan="4" class="empty-state error-state">${error}</td></tr>`;
+  }
+  if (section === "heartbeat-targets" && !state.heartbeatTargets.length) {
+    targetCompareChart.innerHTML = errorHtml(error);
+    heartbeatTargetTableBody.innerHTML = `<tr><td colspan="5" class="empty-state error-state">${error}</td></tr>`;
+  }
+}
+
+async function loadSection(seq, section, label, url, onData, onRender) {
+  const result = await fetchJson(label, url, null);
+  if (seq !== state.loadSeq) {
+    return;
+  }
+  if (result.ok) {
+    onData(result.data);
+    onRender();
+  } else {
+    state.loadErrors.push(result.error);
+    showSectionError(section, result.error);
+  }
+  renderStatus();
+}
+
+async function loadData(seq) {
   const heartbeatParams = new URLSearchParams({
     hours: String(state.heartbeat.hours),
     bucket: state.heartbeat.bucket,
     target: state.heartbeat.target,
   });
-  const [historyResponse, summaryResponse, heartbeatDashboardResponse, heartbeatTargetsResponse] = await Promise.all([
-    fetch(`/api/history?kind=internet&hours=${state.hours}`),
-    fetch(`/api/internet/summary?hours=${state.hours}`),
-    fetch(`/api/heartbeat/dashboard?${heartbeatParams.toString()}`),
-    fetch(`/api/heartbeat/targets?hours=${state.heartbeat.hours}`),
+  await Promise.all([
+    loadSection(seq, "internet-history", "测速历史", `/api/history?kind=internet&hours=${state.hours}`, (data) => {
+      state.history = data || [];
+    }, () => {
+      renderHistoryTable();
+      drawInternetChart();
+    }),
+    loadSection(seq, "internet-summary", "测速汇总", `/api/internet/summary?hours=${state.hours}`, (data) => {
+      state.summary = data;
+    }, () => {
+      drawInternetChart();
+    }),
+    loadSection(seq, "heartbeat-dashboard", "心跳趋势", `/api/heartbeat/dashboard?${heartbeatParams.toString()}`, (data) => {
+      state.heartbeat.dashboard = data;
+    }, () => {
+      renderHeartbeatLattice();
+      drawHeartbeatChart();
+      renderHeartbeatEventTable();
+    }),
+    loadSection(seq, "heartbeat-targets", "目标对比", `/api/heartbeat/targets?hours=${state.heartbeat.hours}`, (data) => {
+      state.heartbeatTargets = data || [];
+    }, () => {
+      drawTargetCompareChart();
+      renderHeartbeatTargetTable();
+    }),
   ]);
-  if (!historyResponse.ok || !summaryResponse.ok || !heartbeatDashboardResponse.ok || !heartbeatTargetsResponse.ok) {
-    throw new Error("数据读取失败");
-  }
-  state.history = await historyResponse.json();
-  state.summary = await summaryResponse.json();
-  state.heartbeat.dashboard = await heartbeatDashboardResponse.json();
-  state.heartbeatTargets = await heartbeatTargetsResponse.json();
 }
 
 async function refresh() {
-  statusText.textContent = "正在同步监控数据...";
-  await loadData();
-  renderHeartbeatLattice();
-  drawTargetCompareChart();
-  drawHeartbeatChart();
-  drawInternetChart();
-  renderHeartbeatTargetTable();
-  renderHeartbeatEventTable();
-  renderHistoryTable();
-  statusText.textContent = `心跳 ${state.heartbeat.target} · ${state.heartbeat.bucket} · 最近 ${state.heartbeat.hours} 小时；${speedtestScheduleSummary()}；测速展示 ${state.hours === 0 ? "全部历史" : `最近 ${state.hours} 小时`}`;
+  const seq = state.loadSeq + 1;
+  state.loadSeq = seq;
+  state.loadErrors = [];
+  state.isLoading = true;
+  renderStatus();
+  renderLoadingStates();
+  await loadData(seq);
+  if (seq !== state.loadSeq) {
+    return;
+  }
+  state.isLoading = false;
+  renderStatus();
 }
 
 document.querySelectorAll(".range-btn[data-hours]").forEach((button) => {
@@ -589,6 +835,7 @@ document.querySelectorAll(".range-btn[data-heartbeat-hours]").forEach((button) =
     document.querySelectorAll(".range-btn[data-heartbeat-hours]").forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
     state.heartbeat.hours = Number(button.dataset.heartbeatHours);
+    coarsenBucketForLongRange();
     try {
       await refresh();
     } catch (error) {
@@ -599,9 +846,7 @@ document.querySelectorAll(".range-btn[data-heartbeat-hours]").forEach((button) =
 
 document.querySelectorAll(".range-btn[data-heartbeat-bucket]").forEach((button) => {
   button.addEventListener("click", async () => {
-    document.querySelectorAll(".range-btn[data-heartbeat-bucket]").forEach((item) => item.classList.remove("active"));
-    button.classList.add("active");
-    state.heartbeat.bucket = button.dataset.heartbeatBucket;
+    setHeartbeatBucket(button.dataset.heartbeatBucket);
     try {
       await refresh();
     } catch (error) {
