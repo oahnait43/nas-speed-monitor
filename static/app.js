@@ -48,6 +48,20 @@ function setHeartbeatBucket(bucket) {
   });
 }
 
+function heartbeatRequestBucket() {
+  if (state.heartbeat.hours >= 168 && state.heartbeat.bucket === "1h") {
+    return "15m";
+  }
+  return state.heartbeat.bucket;
+}
+
+function heartbeatBucketLabel() {
+  if (state.heartbeat.hours >= 168 && state.heartbeat.bucket === "1h") {
+    return "1h（15 分钟细格）";
+  }
+  return state.heartbeat.bucket;
+}
+
 function coarsenBucketForLongRange() {
   if (state.heartbeat.hours >= 168 && state.heartbeat.bucket !== "1h") {
     setHeartbeatBucket("1h");
@@ -57,7 +71,7 @@ function coarsenBucketForLongRange() {
 function statusSummary() {
   const syncStatus = state.loadErrors.length ? `；部分数据暂未同步：${state.loadErrors.join("、")}` : "";
   const loadingPrefix = state.isLoading ? "正在同步监控数据；" : "";
-  return `${loadingPrefix}心跳 ${state.heartbeat.target} · ${state.heartbeat.bucket} · 最近 ${state.heartbeat.hours} 小时；${speedtestScheduleSummary()}；测速展示 ${state.hours === 0 ? "全部历史" : `最近 ${state.hours} 小时`}${syncStatus}`;
+  return `${loadingPrefix}心跳 ${state.heartbeat.target} · ${heartbeatBucketLabel()} · 最近 ${state.heartbeat.hours} 小时；${speedtestScheduleSummary()}；测速展示 ${state.hours === 0 ? "全部历史" : `最近 ${state.hours} 小时`}${syncStatus}`;
 }
 
 function renderStatus() {
@@ -242,8 +256,23 @@ function formatLatticeDayLabel(dayText, shortMode) {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
+function renderLatticeTimeAxis(compactLabels = false) {
+  return Array.from({ length: 24 }, (_, hour) => {
+    const label = compactLabels && hour % 2 !== 0 ? "" : String(hour).padStart(2, "0");
+    return `<span>${label}</span>`;
+  }).join("");
+}
+
 function latticeLayout(dayCount, bucketMinutes) {
   const mobile = isMobileViewport();
+  if (state.heartbeat.hours >= 168 && bucketMinutes >= 15) {
+    return {
+      dayWidth: heartbeatLattice?.clientWidth || (mobile ? 360 : 1200),
+      gap: mobile ? 8 : 10,
+      shortLabel: true,
+      stacked: true,
+    };
+  }
   const gap = mobile ? 6 : 8;
   let visibleDays = dayCount;
   if (state.heartbeat.hours >= 168) {
@@ -263,12 +292,14 @@ function latticeLayout(dayCount, bucketMinutes) {
     dayWidth: Math.max(minWidth, Math.min(maxWidth, rawWidth)),
     gap,
     shortLabel: dayCount >= 4 || state.heartbeat.hours >= 168,
+    stacked: false,
   };
 }
 
 function renderHeartbeatLattice() {
   const series = state.heartbeat.dashboard?.series || [];
   if (!series.length) {
+    heartbeatLattice.classList.remove("stacked-days");
     heartbeatLattice.innerHTML = `<p class="empty-state">暂无连通性数据</p>`;
     return;
   }
@@ -293,14 +324,25 @@ function renderHeartbeatLattice() {
     groups.push({ day: currentDay, items: currentItems });
   }
   const layout = latticeLayout(groups.length, bucketMinutes);
+  const stackedDays = layout.stacked && useHourlyColumns;
   heartbeatLattice.style.setProperty("--lattice-day-width", `${layout.dayWidth}px`);
   heartbeatLattice.style.setProperty("--lattice-gap", `${layout.gap}px`);
-  heartbeatLattice.innerHTML = groups.map((group) => `
-    <section class="lattice-day">
+  heartbeatLattice.classList.toggle("stacked-days", stackedDays);
+  heartbeatLattice.innerHTML = `
+    ${stackedDays ? `
+      <div class="lattice-stack-axis">
+        <div class="lattice-stack-axis-spacer" aria-hidden="true"></div>
+        <div class="lattice-time-axis lattice-time-axis-shared">
+          ${renderLatticeTimeAxis(isMobileViewport())}
+        </div>
+      </div>
+    ` : ""}
+    ${groups.map((group) => `
+    <section class="lattice-day ${stackedDays ? "lattice-day-stacked" : ""}">
       <div class="lattice-day-label" title="${group.day}">${formatLatticeDayLabel(group.day, layout.shortLabel)}</div>
-      ${useHourlyColumns ? `
+      ${useHourlyColumns && !stackedDays ? `
         <div class="lattice-time-axis">
-          ${Array.from({ length: 24 }, (_, hour) => `<span>${String(hour).padStart(2, "0")}</span>`).join("")}
+          ${renderLatticeTimeAxis()}
         </div>
       ` : ""}
       <div class="lattice-day-grid" style="--lattice-rows: ${useHourlyColumns ? slotsPerHour : 1}">
@@ -325,7 +367,8 @@ function renderHeartbeatLattice() {
           : group.items.map((point) => renderLatticeCell(point)).join("")}
       </div>
     </section>
-  `).join("");
+  `).join("")}
+  `;
   heartbeatLattice.querySelectorAll("[data-focus-time]").forEach((node) => {
     node.addEventListener("click", () => {
       setFocusedTime(Number(node.dataset.focusTime), { scrollToSpeed: true });
@@ -349,7 +392,7 @@ function drawTargetCompareChart() {
   });
   const width = 700;
   const rowHeight = 82;
-  const pad = { top: 88, right: 184, bottom: 24, left: 180 };
+  const pad = { top: 48, right: 184, bottom: 24, left: 180 };
   const maxLatency = Math.max(...rows.flatMap((row) => [Number(row.avg_latency_ms || 0), Number(row.p95_latency_ms || 0), Number(row.p99_latency_ms || 0)]), 120);
   const height = pad.top + rows.length * rowHeight + pad.bottom;
   const scaleX = (value) => pad.left + (Number(value || 0) / maxLatency) * (width - pad.left - pad.right);
@@ -433,10 +476,12 @@ function drawTargetCompareChart() {
   }).join("");
 
   targetCompareChart.innerHTML = `
+    <div class="diagnostic-summary">
+      <p>基线目标 ${primary?.target || "--"}；实心点表示平均延迟，横线表示到 p95，紫点表示 p99。</p>
+      <p>右侧展示成功率、延迟分位和相对基线偏移，可结合国内/国际分组判断异常范围。</p>
+      <p class="diagnostic-summary-banner">${diagnosis}</p>
+    </div>
     <svg class="chart-svg diagnostic-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
-      <text class="annotation-label top-note" x="${pad.left}" y="16">基线目标 ${primary?.target || "--"}；实心点表示平均延迟，横线表示到 p95，紫点表示 p99。</text>
-      <text class="annotation-label top-note" x="${pad.left}" y="34">右侧展示成功率、延迟分位和相对基线偏移，可结合国内/国际分组判断异常范围。</text>
-      <text class="diagnosis-banner" x="${pad.left}" y="58">${diagnosis}</text>
       ${thresholdBands}
       ${axisTicks}
       ${rowsSvg}
@@ -529,8 +574,8 @@ function drawHeartbeatChart() {
   const latestPoint = points[points.length - 1];
   const focused = state.focusTimeMs !== null ? nearestPoint(points, state.focusTimeMs) : null;
   const topNote = mobile
-    ? `${dashboard.target} · ${dashboard.bucket} · p95 ${fmt(dashboard.stats.p95_latency_ms, " ms")} · p99 ${fmt(dashboard.stats.p99_latency_ms, " ms")}`
-    : `${dashboard.target} · ${dashboard.bucket} · uptime ${pct(dashboard.stats.uptime_ratio)} · p95 ${fmt(dashboard.stats.p95_latency_ms, " ms")} · p99 ${fmt(dashboard.stats.p99_latency_ms, " ms")}`;
+    ? `${dashboard.target} · ${heartbeatBucketLabel()} · p95 ${fmt(dashboard.stats.p95_latency_ms, " ms")} · p99 ${fmt(dashboard.stats.p99_latency_ms, " ms")}`
+    : `${dashboard.target} · ${heartbeatBucketLabel()} · uptime ${pct(dashboard.stats.uptime_ratio)} · p95 ${fmt(dashboard.stats.p95_latency_ms, " ms")} · p99 ${fmt(dashboard.stats.p99_latency_ms, " ms")}`;
 
   heartbeatSparkline.innerHTML = `
     <svg class="chart-svg heartbeat-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
@@ -771,7 +816,7 @@ async function loadSection(seq, section, label, url, onData, onRender) {
 async function loadData(seq) {
   const heartbeatParams = new URLSearchParams({
     hours: String(state.heartbeat.hours),
-    bucket: state.heartbeat.bucket,
+    bucket: heartbeatRequestBucket(),
     target: state.heartbeat.target,
   });
   await Promise.all([
@@ -908,6 +953,7 @@ window.addEventListener("resize", () => {
   if (!state.summary || !state.heartbeat.dashboard) {
     return;
   }
+  renderHeartbeatLattice();
   drawHeartbeatChart();
   drawInternetChart();
   drawTargetCompareChart();

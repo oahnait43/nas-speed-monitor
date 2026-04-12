@@ -52,7 +52,7 @@ ENABLE_HEARTBEAT_TEST = env_bool("ENABLE_HEARTBEAT_TEST", True)
 LAN_HOST = os.getenv("LAN_IPERF_HOST", "")
 LAN_PORT = env_int("LAN_IPERF_PORT", 5201)
 LAN_DURATION = env_int("LAN_IPERF_DURATION_SECONDS", 10)
-HEARTBEAT_INTERVAL_SECONDS = env_int("HEARTBEAT_INTERVAL_SECONDS", 120)
+HEARTBEAT_INTERVAL_SECONDS = env_int("HEARTBEAT_INTERVAL_SECONDS", 300)
 HEARTBEAT_TARGET = os.getenv("HEARTBEAT_TARGET", "223.5.5.5").strip() or "223.5.5.5"
 HEARTBEAT_TIMEOUT_SECONDS = env_int("HEARTBEAT_TIMEOUT_SECONDS", 2)
 HEARTBEAT_TARGETS = [
@@ -1382,6 +1382,7 @@ def fetch_heartbeat_dashboard(hours: int, bucket: str, target: str | None) -> di
     bucket_map = {
         "1m": 1,
         "5m": 5,
+        "15m": 15,
         "1h": 60,
     }
     bucket_minutes = bucket_map.get(bucket, 5)

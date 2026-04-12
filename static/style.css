@@ -307,10 +307,18 @@ h2 { font-size: 22px; }
   font-size: 12px;
 }
 
-.diagnosis-banner {
+.diagnostic-summary {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+  color: var(--muted);
   font-size: 12px;
+  line-height: 1.45;
+}
+
+.diagnostic-summary-banner {
+  color: var(--ink);
   font-weight: 700;
-  fill: var(--ink);
 }
 
 .panel-label {
@@ -401,9 +409,33 @@ h2 { font-size: 22px; }
   padding-bottom: 4px;
 }
 
+.heartbeat-lattice.stacked-days {
+  display: grid;
+  gap: var(--lattice-gap, 10px);
+  overflow-x: visible;
+}
+
+.lattice-stack-axis {
+  display: grid;
+  grid-template-columns: var(--lattice-label-width, 44px) minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: end;
+}
+
+.lattice-stack-axis-spacer {
+  min-width: 0;
+}
+
 .lattice-day {
   flex: 0 0 min(100%, var(--lattice-day-width, 360px));
   min-width: 0;
+}
+
+.lattice-day-stacked {
+  display: grid;
+  grid-template-columns: var(--lattice-label-width, 44px) minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: center;
 }
 
 .lattice-day-label {
@@ -411,6 +443,11 @@ h2 { font-size: 22px; }
   color: var(--muted);
   font-size: 10px;
   font-weight: 700;
+}
+
+.heartbeat-lattice.stacked-days .lattice-day-label {
+  margin-bottom: 0;
+  text-align: right;
 }
 
 .lattice-time-axis {
@@ -433,11 +470,20 @@ h2 { font-size: 22px; }
   align-items: start;
 }
 
+.heartbeat-lattice.stacked-days .lattice-day-grid {
+  gap: 2px;
+}
+
 .lattice-hour-column {
   display: grid;
   grid-template-rows: repeat(var(--lattice-rows, 12), minmax(4px, 1fr));
   gap: 1px;
   min-width: 0;
+}
+
+.heartbeat-lattice.stacked-days .lattice-hour-column {
+  grid-template-rows: repeat(var(--lattice-rows, 1), minmax(11px, 1fr));
+  gap: 2px;
 }
 
 .heartbeat-cell {
@@ -708,8 +754,22 @@ a { color: var(--blue); }
     flex-basis: min(100%, var(--lattice-day-width, 168px));
   }
 
+  .lattice-stack-axis,
+  .lattice-day-stacked {
+    grid-template-columns: var(--lattice-label-width, 38px) minmax(0, 1fr);
+    column-gap: 6px;
+  }
+
   .lattice-hour-column {
     grid-template-rows: repeat(var(--lattice-rows, 12), minmax(4px, 1fr));
     gap: 1px;
+  }
+
+  .heartbeat-lattice.stacked-days .lattice-time-axis {
+    font-size: 6px;
+  }
+
+  .heartbeat-lattice.stacked-days .lattice-hour-column {
+    grid-template-rows: repeat(var(--lattice-rows, 1), minmax(9px, 1fr));
   }
 }
