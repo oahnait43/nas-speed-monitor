@@ -6,7 +6,12 @@
     <title>NAS 外网测速看板</title>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
-  <body data-app-version="{{ app_version }}" data-speedtest-schedule="{{ schedule_summary }}">
+  <body
+    data-app-version="{{ app_version }}"
+    data-speedtest-schedule="{{ schedule_summary }}"
+    data-heartbeat-interval="{{ heartbeat_interval_seconds }}"
+    data-heartbeat-jitter="{{ heartbeat_jitter_seconds }}"
+  >
     <div class="page-shell">
       <header class="hero hero-compact">
         <div>

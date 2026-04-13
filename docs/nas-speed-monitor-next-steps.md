@@ -76,6 +76,8 @@ Recent local and deployed changes already landed on the NAS:
 - The homepage now exposes the current speedtest schedule in server-rendered HTML via `data-speedtest-schedule`, so the frontend summary matches the live schedule.
 - Default live operating profile was tuned for lower power and less disturbance:
   - `HEARTBEAT_INTERVAL_SECONDS=300`
+  - `HEARTBEAT_JITTER_SECONDS=90`
+  - `HEARTBEAT_TARGET_SPREAD_SECONDS=8`
   - `HEARTBEAT_TARGETS=223.5.5.5,119.29.29.29,1.1.1.1`
   - `SCHEDULE_CLOCK_TIMES=05:00,16:00`
 - Backend speedtest errors preserve the first line of CLI output instead of only `exit status 2`.
@@ -194,7 +196,9 @@ sudo docker inspect nas-speed-monitor --format '{{range .Config.Env}}{{println .
   | grep -Ev '^(PATH|LANG|GPG_KEY|PYTHON_VERSION|PYTHON_SHA256|PYTHONDONTWRITEBYTECODE|PYTHONUNBUFFERED)=' \
   > .runtime.env
 grep -q '^HEARTBEAT_INTERVAL_SECONDS=' .runtime.env && sed -i 's/^HEARTBEAT_INTERVAL_SECONDS=.*/HEARTBEAT_INTERVAL_SECONDS=300/' .runtime.env || echo 'HEARTBEAT_INTERVAL_SECONDS=300' >> .runtime.env
+grep -q '^HEARTBEAT_JITTER_SECONDS=' .runtime.env && sed -i 's/^HEARTBEAT_JITTER_SECONDS=.*/HEARTBEAT_JITTER_SECONDS=90/' .runtime.env || echo 'HEARTBEAT_JITTER_SECONDS=90' >> .runtime.env
 grep -q '^HEARTBEAT_TARGET=' .runtime.env && sed -i 's/^HEARTBEAT_TARGET=.*/HEARTBEAT_TARGET=223.5.5.5/' .runtime.env || echo 'HEARTBEAT_TARGET=223.5.5.5' >> .runtime.env
+grep -q '^HEARTBEAT_TARGET_SPREAD_SECONDS=' .runtime.env && sed -i 's/^HEARTBEAT_TARGET_SPREAD_SECONDS=.*/HEARTBEAT_TARGET_SPREAD_SECONDS=8/' .runtime.env || echo 'HEARTBEAT_TARGET_SPREAD_SECONDS=8' >> .runtime.env
 grep -q '^HEARTBEAT_TARGETS=' .runtime.env && sed -i 's/^HEARTBEAT_TARGETS=.*/HEARTBEAT_TARGETS=223.5.5.5,119.29.29.29,1.1.1.1/' .runtime.env || echo 'HEARTBEAT_TARGETS=223.5.5.5,119.29.29.29,1.1.1.1' >> .runtime.env
 grep -q '^SCHEDULE_CLOCK_TIMES=' .runtime.env && sed -i 's/^SCHEDULE_CLOCK_TIMES=.*/SCHEDULE_CLOCK_TIMES=05:00,16:00/' .runtime.env || echo 'SCHEDULE_CLOCK_TIMES=05:00,16:00' >> .runtime.env
 sudo chmod 600 .runtime.env

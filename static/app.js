@@ -33,6 +33,20 @@ function speedtestScheduleSummary() {
   return document.body.dataset.speedtestSchedule || "正式测速固定时刻 05:00 / 16:00";
 }
 
+function heartbeatSamplingSummary(compact = false) {
+  const intervalSeconds = Number(document.body.dataset.heartbeatInterval || 300);
+  const jitterSeconds = Number(document.body.dataset.heartbeatJitter || 0);
+  const intervalLabel = intervalSeconds % 60 === 0 ? `${intervalSeconds / 60} 分钟` : `${intervalSeconds} 秒`;
+  if (jitterSeconds <= 0) {
+    return `心跳名义 ${intervalLabel}`;
+  }
+  if (compact) {
+    return `名义 ${intervalLabel} + 抖动`;
+  }
+  const jitterLabel = jitterSeconds % 60 === 0 ? `${jitterSeconds / 60} 分钟` : `${jitterSeconds} 秒`;
+  return `心跳名义 ${intervalLabel}（轻微抖动 ${jitterLabel}）`;
+}
+
 function loadingHtml(label) {
   return `<p class="empty-state loading-state">${label}加载中...</p>`;
 }
@@ -71,7 +85,7 @@ function coarsenBucketForLongRange() {
 function statusSummary() {
   const syncStatus = state.loadErrors.length ? `；部分数据暂未同步：${state.loadErrors.join("、")}` : "";
   const loadingPrefix = state.isLoading ? "正在同步监控数据；" : "";
-  return `${loadingPrefix}心跳 ${state.heartbeat.target} · ${heartbeatBucketLabel()} · 最近 ${state.heartbeat.hours} 小时；${speedtestScheduleSummary()}；测速展示 ${state.hours === 0 ? "全部历史" : `最近 ${state.hours} 小时`}${syncStatus}`;
+  return `${loadingPrefix}${heartbeatSamplingSummary()} · 目标 ${state.heartbeat.target} · 展示 ${heartbeatBucketLabel()} · 最近 ${state.heartbeat.hours} 小时；${speedtestScheduleSummary()}；测速展示 ${state.hours === 0 ? "全部历史" : `最近 ${state.hours} 小时`}${syncStatus}`;
 }
 
 function renderStatus() {
@@ -574,8 +588,8 @@ function drawHeartbeatChart() {
   const latestPoint = points[points.length - 1];
   const focused = state.focusTimeMs !== null ? nearestPoint(points, state.focusTimeMs) : null;
   const topNote = mobile
-    ? `${dashboard.target} · ${heartbeatBucketLabel()} · p95 ${fmt(dashboard.stats.p95_latency_ms, " ms")} · p99 ${fmt(dashboard.stats.p99_latency_ms, " ms")}`
-    : `${dashboard.target} · ${heartbeatBucketLabel()} · uptime ${pct(dashboard.stats.uptime_ratio)} · p95 ${fmt(dashboard.stats.p95_latency_ms, " ms")} · p99 ${fmt(dashboard.stats.p99_latency_ms, " ms")}`;
+    ? `${dashboard.target} · ${heartbeatBucketLabel()} · ${heartbeatSamplingSummary(true)} · p95 ${fmt(dashboard.stats.p95_latency_ms, " ms")} · p99 ${fmt(dashboard.stats.p99_latency_ms, " ms")}`
+    : `${dashboard.target} · ${heartbeatBucketLabel()} · ${heartbeatSamplingSummary(true)} · uptime ${pct(dashboard.stats.uptime_ratio)} · p95 ${fmt(dashboard.stats.p95_latency_ms, " ms")} · p99 ${fmt(dashboard.stats.p99_latency_ms, " ms")}`;
 
   heartbeatSparkline.innerHTML = `
     <svg class="chart-svg heartbeat-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">

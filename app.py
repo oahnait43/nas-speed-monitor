@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import sqlite3
 import subprocess
@@ -37,7 +38,7 @@ def env_float(name: str, default: float) -> float:
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 DB_PATH = DATA_DIR / os.getenv("DB_NAME", "speed_history.db")
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 TIMEZONE_OFFSET = env_int("TZ_OFFSET_HOURS", 8)
 SCHEDULE_MINUTES = env_int("SCHEDULE_MINUTES", 120)
 SCHEDULE_CLOCK_TIMES = [
@@ -53,8 +54,10 @@ LAN_HOST = os.getenv("LAN_IPERF_HOST", "")
 LAN_PORT = env_int("LAN_IPERF_PORT", 5201)
 LAN_DURATION = env_int("LAN_IPERF_DURATION_SECONDS", 10)
 HEARTBEAT_INTERVAL_SECONDS = env_int("HEARTBEAT_INTERVAL_SECONDS", 300)
+HEARTBEAT_JITTER_SECONDS = env_float("HEARTBEAT_JITTER_SECONDS", 90.0)
 HEARTBEAT_TARGET = os.getenv("HEARTBEAT_TARGET", "223.5.5.5").strip() or "223.5.5.5"
 HEARTBEAT_TIMEOUT_SECONDS = env_int("HEARTBEAT_TIMEOUT_SECONDS", 2)
+HEARTBEAT_TARGET_SPREAD_SECONDS = env_float("HEARTBEAT_TARGET_SPREAD_SECONDS", 8.0)
 HEARTBEAT_TARGETS = [
     item.strip()
     for item in os.getenv("HEARTBEAT_TARGETS", f"{HEARTBEAT_TARGET},119.29.29.29,1.1.1.1").split(",")
@@ -675,7 +678,14 @@ def run_single_heartbeat_test(target: str) -> None:
 
 
 def run_heartbeat_test() -> None:
-    for target in HEARTBEAT_TARGETS:
+    targets = HEARTBEAT_TARGETS[:]
+    if len(targets) > 1:
+        random.shuffle(targets)
+    for index, target in enumerate(targets):
+        if index > 0:
+            spread_delay = random.uniform(0.0, max(0.0, HEARTBEAT_TARGET_SPREAD_SECONDS))
+            if stop_event.wait(spread_delay):
+                return
         run_single_heartbeat_test(target)
     evaluate_notifications("heartbeat")
 
@@ -701,7 +711,7 @@ def scheduler_loop() -> None:
         run_heartbeat_test()
 
     next_speedtest_at = next_scheduled_run()
-    next_heartbeat = time.monotonic() + max(HEARTBEAT_INTERVAL_SECONDS, 1)
+    next_heartbeat = time.monotonic() + next_heartbeat_delay_seconds()
     while not stop_event.is_set():
         speedtest_wait = max(0.5, (next_speedtest_at - local_now()).total_seconds())
         heartbeat_wait = max(0.5, next_heartbeat - time.monotonic())
@@ -711,10 +721,20 @@ def scheduler_loop() -> None:
         now = time.monotonic()
         if ENABLE_HEARTBEAT_TEST and now >= next_heartbeat:
             run_heartbeat_test()
-            next_heartbeat = now + max(HEARTBEAT_INTERVAL_SECONDS, 1)
+            next_heartbeat = now + next_heartbeat_delay_seconds()
         if local_now() >= next_speedtest_at:
             run_all_tests()
             next_speedtest_at = next_scheduled_run()
+
+
+def next_heartbeat_delay_seconds() -> float:
+    base_interval = max(float(HEARTBEAT_INTERVAL_SECONDS), 60.0)
+    jitter = max(0.0, min(float(HEARTBEAT_JITTER_SECONDS), max(base_interval - 60.0, 0.0)))
+    lower_bound = max(60.0, base_interval - jitter)
+    upper_bound = max(lower_bound, base_interval + jitter)
+    if upper_bound <= lower_bound:
+        return lower_bound
+    return random.uniform(lower_bound, upper_bound)
 
 
 def latest_rows() -> dict[str, dict[str, Any] | None]:
@@ -1633,6 +1653,8 @@ def index() -> str:
     return render_template(
         "index.html",
         app_version=APP_VERSION,
+        heartbeat_interval_seconds=HEARTBEAT_INTERVAL_SECONDS,
+        heartbeat_jitter_seconds=HEARTBEAT_JITTER_SECONDS,
         schedule_summary=speedtest_schedule_summary(),
         schedule_minutes=SCHEDULE_MINUTES,
         latest=latest_rows(),

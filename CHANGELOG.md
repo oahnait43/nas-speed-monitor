@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.1 - 2026-04-13
+
+### Changed
+
+- Heartbeat scheduling now runs at a nominal `300s` interval with bounded `±90s` jitter.
+- Targets within the same heartbeat round are shuffled and lightly spread out instead of always probing in the same sequence.
+- The dashboard status copy now shows the nominal heartbeat cadence and jitter behavior.
+- README, `.env.example`, and the NAS handoff document were aligned with the live heartbeat policy.
+
 ## v0.2.0 - 2026-04-11
 
 ### Added
